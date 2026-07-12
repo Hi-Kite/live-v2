@@ -8,6 +8,11 @@ export default defineNuxtConfig({
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3001',
       wsBase: process.env.NUXT_PUBLIC_WS_BASE || 'ws://localhost:3001',
       appName: process.env.APP_NAME || 'LIVE',
+      // —— 备案号（留空则不显示；国内服务器运营需填写自有备案号）——
+      icpNumber: process.env.NUXT_PUBLIC_ICP_NUMBER || '',
+      icpUrl: process.env.NUXT_PUBLIC_ICP_URL || 'https://beian.miit.gov.cn',
+      mpsNumber: process.env.NUXT_PUBLIC_MPS_NUMBER || '',
+      mpsUrl: process.env.NUXT_PUBLIC_MPS_URL || 'http://www.beian.gov.cn',
     },
   },
 

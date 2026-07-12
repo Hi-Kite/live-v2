@@ -56,6 +56,12 @@ nano .env    # 或 vim
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 初始管理员账号 | 自定义强密码 |
 | `ADMIN_INVITE_CODE` | 初始注册邀请码 | 自定义 |
 
+**可选**：
+| 变量 | 说明 |
+|------|------|
+| `ICP_NUMBER` | ICP 备案号（国内服务器填自有备案号，页脚展示；留空不显示） |
+| `MPS_NUMBER` | 公安备案号（可选，页脚展示；留空不显示） |
+
 > 查公网 IP：`curl -s ifconfig.me`
 
 ### 步骤 3：配置 SSL 证书
@@ -120,12 +126,8 @@ docker compose logs -f frontend
 docker compose logs -f backend
 docker compose logs -f srs
 
-# 重启某服务
+# 重启某服务（不改代码，仅重启进程）
 docker compose restart backend
-
-# 更新代码后重新部署
-git pull   # 或 rsync 新代码上来
-docker compose up -d --build
 
 # 停止全部
 docker compose down
@@ -134,13 +136,170 @@ docker compose down
 docker compose down -v
 ```
 
+---
+
+## 🔁 版本更新流程（发布新版本到生产环境）
+
+仓库：https://github.com/Hi-Kite/live-v2  · 分支 `main`
+
+### A. 服务器侧用 git 管理代码（推荐）
+
+首次部署时把仓库克隆到服务器：
+```bash
+ssh user@your-server
+cd /opt/live
+git clone git@github.com:Hi-Kite/live-v2.git .     # 注意结尾的点
+cp .env.example .env && nano .env                  # 填配置（见首次部署）
+# 放 SSL 证书到 nginx/certs/
+docker compose up -d --build
+```
+
+之后每次发布新版本，**在服务器上**执行：
+
+```bash
+cd /opt/live
+
+# 1. 拉取新代码
+git fetch origin
+git log --oneline HEAD..origin/main              # 预览将要更新的提交
+git pull --ff-only origin main
+
+# 2. 如 .env.example 有新增配置项，对照同步到 .env
+diff -u .env .env.example | less
+
+# 3. 重新构建并滚动重启
+#    --build 重新构建镜像（代码改动必需）
+#    后端镜像内会自动跑 prisma migrate deploy 应用数据库迁移
+docker compose up -d --build
+
+# 4. 观察启动是否成功
+docker compose logs -f backend     # 看到 "Backend listening on :3001" 即成功
+docker compose logs -f frontend
+```
+
+> **零停机提示**：上面的命令会先构建新镜像，再原子替换容器，过程中网站短暂不可用（通常 5~15 秒）。如果直播进行中需要零停机，可分服务更新：先 `docker compose up -d --build backend`，确认健康后再 `... frontend`。
+
+### B. 只更新某个服务（如只改了前端）
+
+```bash
+cd /opt/live
+git pull --ff-only
+docker compose build frontend          # 仅重建前端镜像
+docker compose up -d frontend          # 仅替换前端容器
+```
+
+### C. 前端「构建时配置」变更（必须重建前端镜像）
+
+以下变量是 build 时注入到客户端 bundle 的，改了 `.env` 后必须重建前端（`up -d` 不够，因为镜像没变）：
+- `PUBLIC_API_BASE` / `PUBLIC_WS_BASE`
+- `APP_NAME`
+- `ICP_NUMBER` / `ICP_URL` / `MPS_NUMBER` / `MPS_URL`
+
+```bash
+# 改完 .env 后
+docker compose build frontend && docker compose up -d frontend
+```
+
+而后端 / MySQL / Redis 的变量都是运行时读取的，改 `.env` 后 `docker compose up -d` 即可（compose 会检测到 env 变化重建对应容器）。
+
+### D. 数据库迁移说明
+
+- **普通代码更新**：后端容器启动时 entrypoint 会自动执行 `prisma migrate deploy`，无需手动操作。
+- **schema 未改**：迁移无操作，秒过。
+- **迁移失败**（极少数情况，如手改了数据库）：
+  ```bash
+  docker compose exec backend npx prisma migrate deploy
+  # 查看迁移状态
+  docker compose exec backend npx prisma migrate status
+  ```
+- **⚠️ 破坏性迁移**（删字段/改类型）：发布前先备份
+  ```bash
+  docker compose exec mysql mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" livedb > backup_$(date +%F).sql
+  ```
+
+### E. 回滚到上一个版本
+
+```bash
+cd /opt/live
+
+# 1. 回退代码
+git log --oneline -10                    # 找到上一个稳定 commit SHA
+git checkout <previous-sha>
+
+# 2. 如有破坏性数据库迁移，先恢复备份：
+# docker compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" livedb < backup_YYYY-MM-DD.sql
+
+# 3. 重建回退版本
+docker compose up -d --build
+
+# 4. 确认 OK 后，回 main 分支
+git checkout main
+```
+
+> 旧版本镜像也可以保留复用（不必重新 build）：`docker compose up -d` 会复用上次 build 的镜像层，前提是没 `docker compose down`（down 不删镜像）。
+
+### F. 推荐的发布工作流（开发机 → GitHub → 服务器）
+
+```
+开发机                         GitHub                生产服务器
+──────                        ──────                ──────────
+改代码、本地测好
+git add -A
+git commit -m "feat: ..."
+git push origin main   ───►   main 分支更新
+                                                    git pull --ff-only
+                                                    docker compose up -d --build
+                                                    docker compose logs -f backend
+```
+
+**版本标签**（建议每个稳定版本打 tag，便于回溯）：
+```bash
+# 开发机
+git tag -a v2.1.0 -m "弹幕速度调节 + 性能优化"
+git push origin v2.1.0
+
+# 服务器回溯到某版本
+git fetch --tags
+git checkout v2.1.0
+docker compose up -d --build
+```
+
+### G. 健康检查脚本（可选，发布后自动验证）
+
+```bash
+#!/bin/bash
+# deploy-check.sh
+URL="${1:-https://live.example.com}"
+echo "checking $URL ..."
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  code=$(curl -sk -o /dev/null -w "%{http_code}" "$URL/api/health")
+  if [ "$code" = "200" ]; then
+    echo "✓ backend healthy ($code)"
+    exit 0
+  fi
+  echo "  attempt $i: status=$code, retrying in 3s…"
+  sleep 3
+done
+echo "✗ backend not healthy after 30s"
+exit 1
+```
+```bash
+chmod +x deploy-check.sh
+./deploy-check.sh https://live.example.com
+```
+
+---
+
 ### 常见问题
 
-**Q：改了 `PUBLIC_API_BASE` / `PUBLIC_WS_BASE` 但前端还用旧地址？**
-A：这俩是构建时注入到客户端 bundle 的。必须重建前端：
+**Q：改了 `PUBLIC_API_BASE` / `PUBLIC_WS_BASE` / `ICP_NUMBER` 但前端没生效？**
+A：这些是构建时注入到客户端 bundle 的。必须重建前端：
 ```bash
 docker compose build frontend && docker compose up -d frontend
 ```
+
+**Q：页脚不显示备案号？**
+A：`.env` 里 `ICP_NUMBER` 留空就是默认不显示。国内服务器运营需填写自有备案号，填好后重建前端（见上一问）。`MPS_NUMBER`（公安备案）同理，可选。
 
 **Q：WebRTC 看不了，HTTP-FLV/HLS 正常？**
 A：`SRS_CANDIDATE` 没设成公网 IP，或服务器防火墙没开 `8000/udp`。

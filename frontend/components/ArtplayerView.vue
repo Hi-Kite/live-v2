@@ -45,26 +45,21 @@ const props = withDefaults(
   },
 );
 
-type ArtplayerInstance = {
-  video: HTMLVideoElement & { load?: () => void };
-  destroy: (clear?: boolean) => void;
-  on: (event: string, handler: () => void) => void;
-  [key: string]: unknown;
-};
-
 const emit = defineEmits<{
   ready: [art: unknown];
 }>();
 
 const el = ref<HTMLDivElement | null>(null);
 const playing = ref(false);
-let art: ArtplayerInstance | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let art: any = null;
 
 async function buildCustomFlv(
-  ArtplayerMod: typeof import('artplayer').default,
+  _ArtplayerMod: typeof import('artplayer').default,
   video: HTMLVideoElement,
   url: string,
-  a: ArtplayerInstance,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  a: any,
 ) {
   const flvJs = (await import('flv.js')).default;
   if (flvJs.isSupported()) {
@@ -74,13 +69,14 @@ async function buildCustomFlv(
     );
     player.attachMediaElement(video);
     player.load();
-    (a as ArtplayerInstance & { __flv?: { destroy: () => void } }).__flv = player;
+    a.__flv = player;
   } else {
     video.src = url;
   }
 }
 
-async function buildHls(video: HTMLVideoElement, url: string, a: ArtplayerInstance) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function buildHls(video: HTMLVideoElement, url: string, a: any) {
   const Hls = (await import('hls.js')).default;
   if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = url;
@@ -90,7 +86,7 @@ async function buildHls(video: HTMLVideoElement, url: string, a: ArtplayerInstan
     const hls = new Hls({ lowLatencyMode: true, liveDurationInfinity: true });
     hls.loadSource(url);
     hls.attachMedia(video);
-    (a as ArtplayerInstance & { __hls?: { destroy: () => void } }).__hls = hls;
+    a.__hls = hls;
   }
 }
 
@@ -129,14 +125,14 @@ async function init() {
     aspectRatio: false,
     airplay: false,
     customType: {
-      flv: (video: HTMLVideoElement, url: string, a: ArtplayerInstance) =>
+      flv: (video: HTMLVideoElement, url: string, a: unknown) =>
         buildCustomFlv(Artplayer, video, url, a),
-      m3u8: (video: HTMLVideoElement, url: string, a: ArtplayerInstance) =>
+      m3u8: (video: HTMLVideoElement, url: string, a: unknown) =>
         buildHls(video, url, a),
-      hls: (video: HTMLVideoElement, url: string, a: ArtplayerInstance) =>
+      hls: (video: HTMLVideoElement, url: string, a: unknown) =>
         buildHls(video, url, a),
     },
-  }) as unknown as ArtplayerInstance;
+  });
 
   art.on('ready', () => {
     playing.value = true;
@@ -174,12 +170,8 @@ function destroy() {
     guardTimer = null;
   }
   if (art) {
-    const a = art as ArtplayerInstance & {
-      __flv?: { destroy: () => void };
-      __hls?: { destroy: () => void };
-    };
-    a.__flv?.destroy?.();
-    a.__hls?.destroy?.();
+    art.__flv?.destroy?.();
+    art.__hls?.destroy?.();
     art.destroy(false);
     art = null;
   }

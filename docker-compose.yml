@@ -87,6 +87,11 @@ services:
         NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost/api}
         NUXT_PUBLIC_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost}
         NUXT_PUBLIC_APP_NAME: ${APP_NAME:-LIVE}
+        # 备案号（留空则页脚不显示；国内服务器运营请填自有备案号）
+        NUXT_PUBLIC_ICP_NUMBER: ${ICP_NUMBER:-}
+        NUXT_PUBLIC_ICP_URL: ${ICP_URL:-https://beian.miit.gov.cn}
+        NUXT_PUBLIC_MPS_NUMBER: ${MPS_NUMBER:-}
+        NUXT_PUBLIC_MPS_URL: ${MPS_URL:-http://www.beian.gov.cn}
     restart: unless-stopped
     depends_on: [backend]
     environment:
