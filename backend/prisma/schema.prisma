@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  username        String    @unique
+  password        String
+  role            Role      @default(USER)
+  emailVerified   DateTime?
+  twoFactorSecret String?
+  twoFactorEnabled Boolean  @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  messages       Message[]
+  passwordResets PasswordReset[]
+  inviteCodes    InviteCode[]
+
+  @@index([email])
+}
+
+model Stream {
+  id          Int       @id @default(autoincrement())
+  slug        String    @unique
+  title       String
+  description String?   @db.Text
+  streamKey   String    @unique
+  liveStatus  Boolean   @default(false)
+  startedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  messages    Message[]
+
+  @@index([liveStatus])
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  streamId  Int
+  userId    Int
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  stream Stream @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([streamId, createdAt])
+}
+
+model Subscription {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  token     String   @unique
+  createdAt DateTime @default(now())
+}
+
+model InviteCode {
+  code     String    @id
+  usedById Int?
+  usedBy   User?     @relation(fields: [usedById], references: [id], onDelete: SetNull)
+  usedAt   DateTime?
+  createdAt DateTime @default(now())
+}
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  token     String    @unique
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

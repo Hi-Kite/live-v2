@@ -1,0 +1,118 @@
+# =====================================================================
+#  LIVE v2 — production docker-compose
+#  Copy .env.example -> .env and edit before `docker compose up -d`.
+# =====================================================================
+services:
+  mysql:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-livedb}
+      MYSQL_USER: ${MYSQL_USER:-liveuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command: >-
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [internal]
+
+  srs:
+    image: ossrs/srs:5
+    restart: unless-stopped
+    environment:
+      CANDIDATE: ${SRS_CANDIDATE:-127.0.0.1}
+    entrypoint: ["/bin/sh", "/usr/local/srs/conf/entrypoint.sh"]
+    volumes:
+      - ./srs/srs.conf.tmpl:/usr/local/srs/conf/srs.conf.tmpl:ro
+      - ./srs/entrypoint.sh:/usr/local/srs/conf/entrypoint.sh:ro
+      - srs-record:/usr/local/srs/objs/nginx/html
+    ports:
+      - "1935:1935"       # RTMP ingest — OBS pushes here (must be public)
+      - "${SRS_HTTP_PORT:-8081}:8080"  # HTTP-FLV/HLS — proxied by nginx, but kept for direct access
+      - "${SRS_API_PORT:-1985}:1985"   # SRS HTTP API — backend uses this via internal network
+      - "8000:8000/udp"   # WebRTC UDP
+    networks: [internal, web]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://${MYSQL_USER:-liveuser}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-livedb}
+      REDIS_URL: redis://redis:6379
+      SRS_RTMP_HOST: srs
+      SRS_RTMP_PORT: "1935"
+      SRS_HTTP_HOST: srs
+      SRS_HTTP_PORT: "8080"
+      SRS_API_HOST: srs
+      SRS_API_PORT: "1985"
+      SRS_WEBRTC_PORT: "8000"
+    env_file: [.env]
+    networks: [internal, web]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Public-facing URLs the browser will hit. Set in .env.
+        NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost/api}
+        NUXT_PUBLIC_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost}
+        NUXT_PUBLIC_APP_NAME: ${APP_NAME:-LIVE}
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      NODE_ENV: production
+      # Server-side (SSR) calls use internal network
+      NUXT_PUBLIC_API_BASE: http://backend:3001
+    env_file: [.env]
+    networks: [internal, web]
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on: [frontend, backend, srs]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    networks: [web]
+
+volumes:
+  mysql-data:
+  redis-data:
+  srs-record:
+
+networks:
+  internal:
+  web:

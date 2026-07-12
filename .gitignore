@@ -1,0 +1,15 @@
+node_modules
+dist
+.nuxt
+.output
+.env
+.env.local
+nginx/certs/*.pem
+nginx/certs/*.crt
+nginx/certs/*.key
+*.log
+.DS_Store
+volumes
+mysql-data
+redis-data
+srs-record

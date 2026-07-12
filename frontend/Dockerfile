@@ -1,0 +1,25 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package.json pnpm-lock.yaml* package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+# Build-time public env (injected into client bundle)
+ARG NUXT_PUBLIC_API_BASE
+ARG NUXT_PUBLIC_WS_BASE
+ARG NUXT_PUBLIC_APP_NAME
+ENV NUXT_PUBLIC_API_BASE=$NUXT_PUBLIC_API_BASE
+ENV NUXT_PUBLIC_WS_BASE=$NUXT_PUBLIC_WS_BASE
+ENV NUXT_PUBLIC_APP_NAME=$NUXT_PUBLIC_APP_NAME
+
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+COPY --from=builder /app/.output ./.output
+COPY --from=builder /app/package.json ./package.json
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
