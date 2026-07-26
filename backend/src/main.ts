@@ -52,6 +52,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.useWebSocketAdapter(new IoAdapter(app));
+  // SIGTERM/SIGINT 时触发 onModuleDestroy（Redis 断连、点赞缓冲落库等），
+  // 容器滚动更新不丢内存中的待写数据
+  app.enableShutdownHooks();
 
   const port = Number(config.get<string>('PORT') || '3001');
   await app.listen(port, '0.0.0.0');

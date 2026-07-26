@@ -5,14 +5,16 @@
 ## 功能
 
 - 直播播放（RTMP 接入 → HTTP-FLV / HLS 分发；WebRTC 底层已预留，播放端暂未接入）
-- 实时聊天（WebSocket）+ 弹幕叠加
+- 实时聊天（WebSocket）+ 弹幕叠加（必开、字号三档可调、全屏内嵌聊天停靠）
+- 主播对战（PK）：管理员发起两个直播间对战，双方共享同一聊天池，观众点赞实时对比
+- 给主播点赞（限流 + 按秒合并广播），管理员可禁言/解禁用户（落库、跨设备生效）
 - 用户系统：邀请码注册、邮箱验证、密码重置、修改密码、删除账号
-- 后台管理：直播间管理（创建/开播/停播/推流密钥）、用户管理、邀请码生成
+- 后台管理：直播间管理（创建/开播/停播/推流密钥/发起对战）、用户管理、邀请码生成
+- 后台实时监控：推流/分发带宽走势、播放连接数、聊天在线数、分直播间码率明细
 - 管理员两步验证（TOTP）
 - 邮件订阅 + 开播通知 + 一键退订
-- 多路直播（PVP）分屏模式（最多 4 路）
 - 深色/浅色主题、响应式布局
-- CSRF 防护、速率限制、argon2 密码哈希、JWT httpOnly cookie
+- CSRF 防护、速率限制、argon2 密码哈希、JWT httpOnly cookie、优雅停机、深度健康检查
 
 ---
 
@@ -146,6 +148,35 @@ docker compose down
 
 # 停止并清空数据（⚠️ 危险，会删数据库）
 docker compose down -v
+```
+
+### 数据库定时备份（上线前必须配置）
+```bash
+# 备份脚本：每天全量导出并保留最近 14 份
+sudo tee /opt/live/backup-db.sh > /dev/null << 'EOF'
+#!/bin/sh
+set -e
+cd /opt/live
+mkdir -p backups
+docker compose exec -T mysql sh -c \
+  'exec mysqldump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+  | gzip > "backups/livedb-$(date +%F-%H%M).sql.gz"
+ls -1t backups/livedb-*.sql.gz | tail -n +15 | xargs -r rm --
+EOF
+sudo chmod +x /opt/live/backup-db.sh
+
+# 挂到 cron（每天 04:30）
+( crontab -l 2>/dev/null; echo '30 4 * * * /opt/live/backup-db.sh >> /opt/live/backups/backup.log 2>&1' ) | crontab -
+
+# 恢复演练（务必在上线前做一次）：
+# gunzip -c backups/livedb-xxxx.sql.gz | docker compose exec -T mysql sh -c \
+#   'exec mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
+```
+
+### Let's Encrypt 证书自动续期
+```bash
+# 每周尝试续期，成功后 reload nginx（certbot 只在临期时才会真正续）
+( crontab -l 2>/dev/null; echo '0 3 * * 1 certbot renew --webroot -w /opt/live/nginx/certbot --deploy-hook "docker compose -f /opt/live/docker-compose.yml exec nginx nginx -s reload" >> /var/log/certbot-renew.log 2>&1' ) | crontab -
 ```
 
 ---

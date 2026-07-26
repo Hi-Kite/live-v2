@@ -118,14 +118,11 @@ services:
       RATE_LIMIT_REGISTER_LIMIT: ${RATE_LIMIT_REGISTER_LIMIT:-10}
       RATE_LIMIT_MESSAGE_TTL: ${RATE_LIMIT_MESSAGE_TTL:-60}
       RATE_LIMIT_MESSAGE_LIMIT: ${RATE_LIMIT_MESSAGE_LIMIT:-10}
-      # SRS internal endpoints (backend-only; never returned to browsers)
-      SRS_RTMP_HOST: srs
-      SRS_RTMP_PORT: "1935"
-      SRS_HTTP_HOST: srs
-      SRS_HTTP_PORT: "8080"
+      RATE_LIMIT_SUBSCRIBE_TTL: ${RATE_LIMIT_SUBSCRIBE_TTL:-60}
+      RATE_LIMIT_SUBSCRIBE_LIMIT: ${RATE_LIMIT_SUBSCRIBE_LIMIT:-5}
+      # SRS internal API (backend-only; never returned to browsers)
       SRS_API_HOST: srs
       SRS_API_PORT: "1985"
-      SRS_WEBRTC_PORT: "8000"
       # Public push/playback bases (optional; derived from APP_URL if empty)
       PUBLIC_RTMP_HOST: ${PUBLIC_RTMP_HOST:-}
       PUBLIC_STREAM_BASE: ${PUBLIC_STREAM_BASE:-}
