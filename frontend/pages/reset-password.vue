@@ -1,41 +1,66 @@
 <template>
-  <div class="mx-auto flex max-w-md flex-col gap-6 py-10">
-    <div class="text-center">
-      <h1 class="text-2xl font-bold">重置密码</h1>
-      <p class="mt-1 text-sm text-slate-500">为账号设置新密码</p>
-    </div>
-    <form class="card space-y-4 p-6" @submit.prevent="submit">
-      <div class="space-y-1.5">
-        <label class="text-sm font-medium">新密码</label>
-        <input v-model="form.newPassword" type="password" class="input" required minlength="8" />
-      </div>
-      <div class="space-y-1.5">
-        <label class="text-sm font-medium">确认密码</label>
-        <input v-model="form.confirm" type="password" class="input" required minlength="8" />
-      </div>
+  <AuthShell title="重置密码" subtitle="为账号设置新密码">
+    <form class="space-y-4" @submit.prevent="submit">
+      <UiFormField label="新密码" hint="至少 8 位">
+        <template #default="{ id }">
+          <UiInput
+            :id="id"
+            v-model="form.newPassword"
+            type="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            placeholder="••••••••"
+          />
+        </template>
+      </UiFormField>
+
+      <UiFormField label="确认密码" :error="confirmError">
+        <template #default="{ id }">
+          <UiInput
+            :id="id"
+            v-model="form.confirm"
+            type="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            :invalid="!!confirmError"
+            placeholder="••••••••"
+          />
+        </template>
+      </UiFormField>
+
       <p v-if="error" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
-      <p v-if="ok" class="text-sm text-green-600">密码已重置，正在跳转登录…</p>
-      <button class="btn-primary w-full" :disabled="loading" type="submit">
+      <p v-if="ok" class="text-sm text-green-600 dark:text-green-400">密码已重置，正在跳转登录…</p>
+
+      <UiButton type="submit" block :loading="loading">
         {{ loading ? '处理中…' : '重置密码' }}
-      </button>
+      </UiButton>
     </form>
-  </div>
+
+    <template #footer>
+      <NuxtLink to="/login" class="text-brand-600 hover:underline">返回登录</NuxtLink>
+    </template>
+  </AuthShell>
 </template>
 
 <script setup lang="ts">
 const route = useRoute();
 const api = useApi();
 const csrf = useCsrf();
+const toast = useToast();
 
 const form = reactive({ newPassword: '', confirm: '' });
 const loading = ref(false);
 const error = ref('');
+const confirmError = ref('');
 const ok = ref(false);
 
 async function submit() {
   error.value = '';
+  confirmError.value = '';
   if (form.newPassword !== form.confirm) {
-    error.value = '两次密码不一致';
+    confirmError.value = '两次密码不一致';
     return;
   }
   loading.value = true;
@@ -46,12 +71,14 @@ async function submit() {
       newPassword: form.newPassword,
     });
     ok.value = true;
+    toast.success('密码已重置，请使用新密码登录');
     setTimeout(() => navigateTo('/login'), 1500);
   } catch (e: unknown) {
-    error.value = (e as { data?: { message?: string } }).data?.message || '重置失败';
+    error.value = apiErrorMessage(e, '重置失败');
   } finally {
     loading.value = false;
   }
 }
+
 useHead({ title: '重置密码 — LIVE' });
 </script>

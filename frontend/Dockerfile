@@ -1,7 +1,12 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package.json pnpm-lock.yaml* package-lock.json* ./
-RUN npm install --no-audit --no-fund
+
+# pnpm-lock.yaml is the authoritative lockfile — install with pnpm so
+# production builds are reproducible (npm would ignore it entirely).
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # Build-time public env (injected into client bundle)
 ARG NUXT_PUBLIC_API_BASE
@@ -20,7 +25,7 @@ ENV NUXT_PUBLIC_MPS_NUMBER=$NUXT_PUBLIC_MPS_NUMBER
 ENV NUXT_PUBLIC_MPS_URL=$NUXT_PUBLIC_MPS_URL
 
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app

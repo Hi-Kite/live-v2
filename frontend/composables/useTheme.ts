@@ -16,16 +16,20 @@ export function useTheme() {
 
   function init() {
     if (import.meta.server) return;
+    // A pre-hydration head script may already have applied the `dark`
+    // class before Vue mounted — treat the DOM as a signal so isDark does
+    // not desync from what is on screen.
+    const domDark = document.documentElement.classList.contains('dark');
     let saved: string | null = null;
     try {
       saved = localStorage.getItem('theme');
     } catch {
       // ignore
     }
-    const prefersDark =
-      saved === 'dark' ||
-      (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    apply(prefersDark);
+    const dark = saved
+      ? saved === 'dark'
+      : domDark || window.matchMedia('(prefers-color-scheme: dark)').matches;
+    apply(dark);
   }
 
   function toggle() {

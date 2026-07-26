@@ -12,6 +12,11 @@ export default {
   theme: {
     extend: {
       colors: {
+        page: 'rgb(var(--c-page) / <alpha-value>)',
+        surface: 'rgb(var(--c-surface) / <alpha-value>)',
+        ink: 'rgb(var(--c-ink) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        soft: 'rgb(var(--c-soft) / <alpha-value>)',
         brand: {
           50: '#eef6ff',
           100: '#d9eaff',

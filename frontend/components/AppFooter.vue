@@ -1,8 +1,5 @@
 <template>
-  <footer
-    class="border-t py-6 text-center text-xs text-slate-500 dark:text-slate-400"
-    :style="{ borderColor: 'var(--border)' }"
-  >
+  <footer class="border-t border-line py-6 text-center text-xs text-soft">
     <div
       class="mx-auto flex max-w-7xl flex-col items-center gap-1 px-4 sm:flex-row sm:justify-center sm:gap-4 sm:px-6 lg:px-8"
     >
@@ -12,14 +9,14 @@
         :href="icpUrl"
         target="_blank"
         rel="noopener noreferrer"
-        class="hover:text-brand-600"
+        class="transition-colors hover:text-brand-600"
       >{{ icpNumber }}</a>
       <a
         v-if="mpsNumber"
         :href="mpsUrl"
         target="_blank"
         rel="noopener noreferrer"
-        class="inline-flex items-center gap-1 hover:text-brand-600"
+        class="inline-flex items-center gap-1 transition-colors hover:text-brand-600"
       >
         <span aria-hidden="true">🇨🇳</span>{{ mpsNumber }}
       </a>

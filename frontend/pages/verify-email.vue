@@ -1,36 +1,58 @@
 <template>
-  <div class="mx-auto flex max-w-md flex-col gap-6 py-10">
-    <div class="card space-y-4 p-8 text-center">
-      <div v-if="state === 'loading'" class="space-y-3">
-        <div class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
-        <p class="text-sm text-slate-500">正在验证邮箱…</p>
-      </div>
+  <AuthShell title="邮箱验证">
+    <div class="space-y-4 py-2 text-center">
+      <template v-if="state === 'loading'">
+        <div
+          class="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-brand-600 border-t-transparent"
+          aria-hidden="true"
+        />
+        <p class="text-sm text-soft">正在验证邮箱…</p>
+      </template>
 
       <template v-else-if="state === 'ok'">
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400">
-          <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+        <div
+          class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400"
+        >
+          <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M5 13l4 4L19 7" />
+          </svg>
         </div>
-        <h1 class="text-xl font-bold">邮箱验证成功</h1>
-        <p class="text-sm text-slate-500">您现在可以登录了。</p>
-        <NuxtLink to="/login" class="btn-primary">前往登录</NuxtLink>
+        <div class="space-y-1">
+          <h2 class="text-xl font-bold">邮箱验证成功</h2>
+          <p class="text-sm text-soft">您现在可以登录了。</p>
+        </div>
+        <div class="flex items-center justify-center gap-3">
+          <UiButton to="/login">去登录</UiButton>
+          <UiButton to="/" variant="secondary">回首页</UiButton>
+        </div>
       </template>
 
       <template v-else>
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400">
-          <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg>
+        <div
+          class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400"
+        >
+          <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M6 18L18 6M6 6l12 12" />
+          </svg>
         </div>
-        <h1 class="text-xl font-bold">验证失败</h1>
-        <p class="text-sm text-slate-500">{{ error }}</p>
-        <NuxtLink to="/" class="btn-secondary">返回首页</NuxtLink>
+        <div class="space-y-1">
+          <h2 class="text-xl font-bold">验证失败</h2>
+          <p class="text-sm text-soft">{{ error }}</p>
+        </div>
+        <div class="flex items-center justify-center gap-3">
+          <UiButton to="/login">去登录</UiButton>
+          <UiButton to="/" variant="secondary">回首页</UiButton>
+        </div>
       </template>
     </div>
-  </div>
+  </AuthShell>
 </template>
 
 <script setup lang="ts">
 const route = useRoute();
 const api = useApi();
 const csrf = useCsrf();
+const toast = useToast();
 
 type State = 'loading' | 'ok' | 'error';
 const state = ref<State>('loading');
@@ -47,10 +69,10 @@ async function run() {
     await csrf.ensure();
     await api.post('/api/auth/verify-email', { token });
     state.value = 'ok';
+    toast.success('邮箱验证成功');
   } catch (e: unknown) {
     state.value = 'error';
-    error.value =
-      (e as { data?: { message?: string } }).data?.message || '验证失败';
+    error.value = apiErrorMessage(e, '验证失败');
   }
 }
 

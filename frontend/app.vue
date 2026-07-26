@@ -3,6 +3,8 @@
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>
+    <UiToastHost />
+    <UiConfirmHost />
   </div>
 </template>
 

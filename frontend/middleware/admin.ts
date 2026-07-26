@@ -1,26 +1,14 @@
-export default defineNuxtRouteMiddleware(() => {
-  const auth = useAuthStore();
+export default defineNuxtRouteMiddleware(async () => {
+  // Auth state is established client-side only (httpOnly cookie +
+  // /api/auth/me); never call the API during SSR.
   if (import.meta.server) return;
+  const auth = useAuthStore();
   if (!auth.initialized) {
-    return new Promise<void>((resolve) => {
-      const stop = watch(
-        () => auth.initialized,
-        (ready) => {
-          if (ready) {
-            stop();
-            check();
-            resolve();
-          }
-        },
-        { immediate: true },
-      );
-    });
+    // init() dedupes concurrent callers, so this shares the request with
+    // app.vue's onMounted init.
+    await auth.init();
   }
-  check();
-
-  function check() {
-    if (!auth.isAdmin) {
-      return navigateTo('/');
-    }
+  if (!auth.isAdmin) {
+    return navigateTo('/');
   }
 });

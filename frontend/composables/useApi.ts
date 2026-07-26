@@ -38,6 +38,10 @@ export interface AdminStream {
   title: string;
   description: string | null;
   streamKey: string;
+  /** OBS 推流服务器地址，如 rtmp://host:1935/live/（后端按 PUBLIC_RTMP_HOST/APP_URL 推导） */
+  pushBase?: string;
+  /** OBS 推流密钥，形如 <slug>?key=<streamKey> */
+  pushKey?: string;
   liveStatus: boolean;
   startedAt: string | null;
   createdAt: string;
@@ -54,7 +58,34 @@ type Method =
 
 function getBase(): string {
   const config = useRuntimeConfig();
+  if (import.meta.server) {
+    const internal = (config as { apiInternal?: string }).apiInternal;
+    if (internal) return internal;
+  }
   return config.public.apiBase as string;
+}
+
+function errorStatus(e: unknown): number | undefined {
+  const err = e as { status?: number; statusCode?: number } | null | undefined;
+  return err?.status ?? err?.statusCode;
+}
+
+/**
+ * Extract a human-readable message from an API error, falling back to the
+ * given zh-CN text. class-validator errors arrive as string arrays and are
+ * joined with '；'.
+ */
+export function apiErrorMessage(e: unknown, fallback: string): string {
+  const msg = (e as { data?: { message?: unknown } } | null | undefined)?.data
+    ?.message;
+  if (Array.isArray(msg)) {
+    const joined = msg
+      .filter((m): m is string => typeof m === 'string' && m.length > 0)
+      .join('；');
+    return joined || fallback;
+  }
+  if (typeof msg === 'string' && msg) return msg;
+  return fallback;
 }
 
 export function useApi() {
@@ -68,21 +99,36 @@ export function useApi() {
     const method = (opts.method as Method) || 'GET';
     const isStateful = !['GET', 'HEAD', 'OPTIONS'].includes(method);
 
-    const headers: Record<string, string> = {
-      ...(opts.headers as Record<string, string>),
-    };
-    if (isStateful) {
-      const token = await csrf.ensure();
-      if (token) headers['X-CSRF-Token'] = token;
+    async function attempt(): Promise<T> {
+      const headers: Record<string, string> = {
+        ...(opts.headers as Record<string, string>),
+      };
+      if (isStateful) {
+        const token = await csrf.ensure();
+        if (token) headers['X-CSRF-Token'] = token;
+      }
+
+      return await $fetch<T>(path, {
+        baseURL: base,
+        credentials: 'include',
+        ...opts,
+        method,
+        headers,
+      });
     }
 
-    return await $fetch<T>(path, {
-      baseURL: base,
-      credentials: 'include',
-      ...opts,
-      method,
-      headers,
-    });
+    try {
+      return await attempt();
+    } catch (e) {
+      // A 403 on a mutation usually means the cached CSRF token went stale
+      // (expired, or the session changed). Fetch a fresh token and retry
+      // exactly once; if it still fails, surface the error to the caller.
+      if (isStateful && errorStatus(e) === 403) {
+        csrf.invalidate();
+        return await attempt();
+      }
+      throw e;
+    }
   }
 
   return {
