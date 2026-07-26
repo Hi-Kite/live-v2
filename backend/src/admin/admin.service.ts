@@ -11,6 +11,7 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
 import { ChatGateway } from '../chat/chat.gateway';
+import { SrsService } from '../srs/srs.service';
 
 @Injectable()
 export class AdminService {
@@ -23,7 +24,61 @@ export class AdminService {
     private readonly mail: MailService,
     private readonly config: ConfigService,
     private readonly chat: ChatGateway,
+    private readonly srs: SrsService,
   ) {}
+
+  /** 实时带宽/负载监控：SRS 码率与系统占用 + 聊天在线数 */
+  async metrics() {
+    const [srsStreams, summary, dbStreams] = await Promise.all([
+      this.srs.listStreams(),
+      this.srs.summary(),
+      this.prisma.stream.findMany({ select: { id: true, slug: true, title: true } }),
+    ]);
+    const bySlug = new Map(dbStreams.map((s) => [s.slug, s]));
+    const online = this.chat.onlineTotals();
+
+    let totalSendKbps = 0;
+    let totalRecvKbps = 0;
+    let totalClients = 0;
+    const streams = srsStreams
+      .filter((s) => s.app === 'live')
+      .map((s) => {
+        const db = bySlug.get(s.name);
+        totalSendKbps += s.kbps?.send_30s ?? 0;
+        totalRecvKbps += s.kbps?.recv_30s ?? 0;
+        totalClients += s.clients ?? 0;
+        return {
+          slug: s.name,
+          title: db?.title ?? s.name,
+          publishing: s.publish?.active === true,
+          clients: s.clients ?? 0,
+          sendKbps: s.kbps?.send_30s ?? 0,
+          recvKbps: s.kbps?.recv_30s ?? 0,
+          video: s.video
+            ? { codec: s.video.codec, width: s.video.width, height: s.video.height }
+            : null,
+          chatOnline: db ? (online.byStream[db.id] ?? 0) : 0,
+        };
+      });
+
+    return {
+      srsOk: summary.ok || srsStreams.length > 0,
+      totalSendKbps,
+      totalRecvKbps,
+      totalClients,
+      chatOnline: online.total,
+      system: summary.ok
+        ? {
+            cpuPercent: summary.cpuPercent,
+            memMB: summary.memMB,
+            sysCpuPercent: summary.sysCpuPercent,
+            connections: summary.connections,
+          }
+        : null,
+      streams,
+      ts: Date.now(),
+    };
+  }
 
   async startLive(streamId: number) {
     const stream = await this.streams.startLive(streamId);

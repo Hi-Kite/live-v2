@@ -18,6 +18,18 @@ export interface SrsStreamInfo {
   audio: { codec: string; sample_rate: number; channel: number; profile: string };
 }
 
+export interface SrsSummary {
+  ok: boolean;
+  /** SRS 进程 CPU 占用（百分比 0-100） */
+  cpuPercent: number | null;
+  /** SRS 进程内存占用（MB） */
+  memMB: number | null;
+  /** 系统 CPU 占用（百分比 0-100） */
+  sysCpuPercent: number | null;
+  /** SRS 当前连接数 */
+  connections: number | null;
+}
+
 export interface PlaybackUrls {
   httpFlv: string;
   hls: string;
@@ -76,6 +88,41 @@ export class SrsService {
     } catch (e) {
       this.log.warn(`listStreams failed: ${(e as Error).message}`);
       return [];
+    }
+  }
+
+  /** SRS 进程/系统概要（CPU、内存、连接数）；SRS 不可达时 ok=false */
+  async summary(): Promise<SrsSummary> {
+    const empty: SrsSummary = {
+      ok: false,
+      cpuPercent: null,
+      memMB: null,
+      sysCpuPercent: null,
+      connections: null,
+    };
+    try {
+      const res = await fetch(`${this.apiBase}/api/v1/summaries`, {
+        signal: AbortSignal.timeout(SRS_FETCH_TIMEOUT_MS),
+      });
+      if (!res.ok) return empty;
+      const body = (await res.json()) as {
+        data?: {
+          self?: { cpu_percent?: number; mem_kbyte?: number };
+          system?: { cpu_percent?: number; conn_srs?: number };
+        };
+      };
+      const self = body.data?.self;
+      const sys = body.data?.system;
+      // SRS 的 cpu_percent 是 0~1 的比例
+      return {
+        ok: true,
+        cpuPercent: typeof self?.cpu_percent === 'number' ? Math.round(self.cpu_percent * 1000) / 10 : null,
+        memMB: typeof self?.mem_kbyte === 'number' ? Math.round(self.mem_kbyte / 1024) : null,
+        sysCpuPercent: typeof sys?.cpu_percent === 'number' ? Math.round(sys.cpu_percent * 1000) / 10 : null,
+        connections: typeof sys?.conn_srs === 'number' ? sys.conn_srs : null,
+      };
+    } catch {
+      return empty;
     }
   }
 

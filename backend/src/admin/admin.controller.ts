@@ -24,6 +24,11 @@ export class AdminController {
     return { ok: true, role: 'ADMIN' };
   }
 
+  @Get('metrics')
+  metrics() {
+    return this.admin.metrics();
+  }
+
   // ---- streams
   @Get('streams')
   listStreams() {
