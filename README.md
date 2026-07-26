@@ -49,7 +49,6 @@ nano .env    # 或 vim
 | `MYSQL_ROOT_PASSWORD` | 数据库 root 密码（强密码） | 随机 32 位 |
 | `MYSQL_PASSWORD` | 数据库业务密码（强密码） | 随机 32 位 |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 生成：`openssl rand -hex 48` | 随机 |
-| `CSRF_SECRET` | 生成：`openssl rand -hex 32` | 随机 |
 | `SMTP_*` | 你企业邮箱的 SMTP | 见模板 |
 | `SRS_CANDIDATE` | 服务器公网 IP（WebRTC 预留用） | `203.0.113.10` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 初始管理员账号 | 自定义强密码 |

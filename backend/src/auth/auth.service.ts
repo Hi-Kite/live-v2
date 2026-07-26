@@ -226,7 +226,9 @@ export class AuthService {
         email: user.email,
         username: user.username,
         role: user.role,
+        emailVerified: user.emailVerified,
         twoFactorEnabled: user.twoFactorEnabled,
+        createdAt: user.createdAt,
       },
     };
   }

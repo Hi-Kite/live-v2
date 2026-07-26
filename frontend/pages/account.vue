@@ -99,6 +99,15 @@
         <p v-if="twoFaError" class="text-sm text-red-600 dark:text-red-400">{{ twoFaError }}</p>
       </section>
 
+      <!-- 会话 -->
+      <section class="card flex flex-wrap items-center justify-between gap-3 p-6">
+        <div>
+          <h2 class="text-lg font-bold">退出登录</h2>
+          <p class="mt-0.5 text-sm text-soft">退出当前设备上的登录状态。</p>
+        </div>
+        <UiButton variant="secondary" :loading="loggingOut" @click="doLogout">退出登录</UiButton>
+      </section>
+
       <!-- 危险区 -->
       <section class="card space-y-3 border-red-200 p-6 dark:border-red-900/60">
         <h2 class="text-lg font-bold text-red-600 dark:text-red-400">危险区</h2>
@@ -237,6 +246,20 @@ async function doDelete() {
     toast.error(apiErrorMessage(e, '删除失败'));
   } finally {
     deleting.value = false;
+  }
+}
+
+const loggingOut = ref(false);
+
+async function doLogout() {
+  if (loggingOut.value) return;
+  loggingOut.value = true;
+  try {
+    await auth.logout();
+    toast.success('已退出登录');
+    await navigateTo('/login');
+  } finally {
+    loggingOut.value = false;
   }
 }
 

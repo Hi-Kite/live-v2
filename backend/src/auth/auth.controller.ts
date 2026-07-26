@@ -78,12 +78,15 @@ export class AuthController {
     });
     this.setAuthCookies(res, tokens);
     return {
+      // 与 GET /auth/me 的 UserPublic 形状保持一致（前端直接存入 store）
       user: {
         id: user.id,
         email: user.email,
         username: user.username,
         role: user.role,
+        emailVerified: user.emailVerified,
         twoFactorEnabled: user.twoFactorEnabled,
+        createdAt: user.createdAt,
       },
     };
   }
