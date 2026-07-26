@@ -15,6 +15,7 @@ import { authenticator } from 'otplib';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { RedisService } from '../redis/redis.service';
 import {
   RegisterDto,
   LoginDto,
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
+    private readonly redis: RedisService,
   ) {
     // Fail fast at startup: a missing refresh secret in production would
     // otherwise silently mint unverifiable (or forgeable) tokens.
@@ -155,6 +157,14 @@ export class AuthService {
     return user;
   }
 
+  private refreshTtlSeconds(): number {
+    const raw = this.config.get<string>('JWT_REFRESH_TTL') || '7d';
+    const m = /^(\d+)([smhd])$/.exec(raw.trim());
+    if (!m) return 7 * 24 * 3600;
+    const mult = { s: 1, m: 60, h: 3600, d: 86400 }[m[2] as 's' | 'm' | 'h' | 'd'];
+    return Number(m[1]) * mult;
+  }
+
   async login(user: { id: number; email: string; username: string; role: string }) {
     const payload: JwtPayload = {
       sub: user.id,
@@ -162,11 +172,19 @@ export class AuthService {
       username: user.username,
       role: user.role,
     };
+    // Rotation: each refresh token carries a jti and only the latest jti per
+    // user is honored (stored in Redis), so a stolen/old refresh token dies
+    // the moment a newer one is minted.
+    const jti = randomBytes(16).toString('hex');
     const accessToken = await this.jwt.signAsync(payload);
-    const refreshToken = await this.jwt.signAsync(payload, {
-      secret: this.refreshSecret(),
-      expiresIn: this.config.get<string>('JWT_REFRESH_TTL') || '7d',
-    });
+    const refreshToken = await this.jwt.signAsync(
+      { ...payload, jti },
+      {
+        secret: this.refreshSecret(),
+        expiresIn: this.config.get<string>('JWT_REFRESH_TTL') || '7d',
+      },
+    );
+    await this.redis.set(`auth:rjti:${user.id}`, jti, this.refreshTtlSeconds());
     return { accessToken, refreshToken };
   }
 
@@ -175,12 +193,18 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token missing');
     }
 
-    let payload: JwtPayload;
+    let payload: JwtPayload & { jti?: string };
     try {
-      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
-        secret: this.refreshSecret(),
-      });
+      payload = await this.jwt.verifyAsync<JwtPayload & { jti?: string }>(
+        refreshToken,
+        { secret: this.refreshSecret() },
+      );
     } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const currentJti = await this.redis.get(`auth:rjti:${payload.sub}`);
+    if (!payload.jti || !currentJti || payload.jti !== currentJti) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 

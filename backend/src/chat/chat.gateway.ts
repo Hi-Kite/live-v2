@@ -147,7 +147,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const msg = await this.chat.send(streamId, client.userId, body.content);
     this.io.to(`stream:${streamId}`).emit('message', msg);
-    this.io.emit('streamMessage', { streamId, message: msg });
   }
 
   @SubscribeMessage('deleteMessage')

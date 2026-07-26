@@ -56,6 +56,15 @@ export const useAuthStore = defineStore('auth', {
         if (status === 401 || status === 403) this.user = null;
       }
     },
+    async logout(): Promise<void> {
+      try {
+        const api = useApi();
+        await api.post('/api/auth/logout');
+      } catch {
+        // cookies may already be gone — clearing local state is what matters
+      }
+      this.clear();
+    },
     setUser(u: UserPublic | null) {
       this.user = u;
       // Session changed (login) — a cached CSRF token may belong to the old

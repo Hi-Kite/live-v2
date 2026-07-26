@@ -268,8 +268,15 @@ watch(
   },
 );
 
+// The container ref lives inside <ClientOnly>, whose slot is revealed in a
+// re-render queued AFTER the parent's onMounted — so el is always null there.
+// Init when the ref actually binds; onMounted covers the ref-already-bound case.
+watch(el, (v) => {
+  if (v && !art) init();
+});
+
 onMounted(() => {
-  init();
+  if (el.value && !art) init();
 });
 
 onBeforeUnmount(() => {

@@ -75,9 +75,23 @@ export class SrsHooksController {
   @Public()
   @Post('on-unpublish')
   @HttpCode(200)
-  onUnpublish(@Body() body: SrsHookBody) {
+  async onUnpublish(@Body() body: SrsHookBody) {
+    const slug = body?.stream ?? '';
+    const from = body?.ip ?? 'unknown';
+
+    // SRS forwards the publish query params here too — require the same key
+    // so外部无法伪造回调刷缓存。
+    const key = this.extractKey(body?.param ?? '');
+    const stream = slug
+      ? await this.prisma.stream.findUnique({ where: { slug } })
+      : null;
+    if (!stream || !key || !this.safeEqual(key, stream.streamKey)) {
+      this.log.warn(`Ignored unpublish (invalid key) for "${slug}" from ${from}`);
+      return REJECT;
+    }
+
     this.srs.invalidateStreamsCache();
-    this.log.log(`Unpublish for "${body?.stream ?? ''}" from ${body?.ip ?? 'unknown'}`);
+    this.log.log(`Unpublish for "${slug}" from ${from}`);
     return ALLOW;
   }
 

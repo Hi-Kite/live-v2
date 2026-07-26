@@ -88,6 +88,26 @@ export function apiErrorMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
+// Single-flight refresh: concurrent 401s share one POST /api/auth/refresh.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefreshSession(base: string, csrfToken: string): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = $fetch('/api/auth/refresh', {
+      baseURL: base,
+      method: 'POST',
+      credentials: 'include',
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+    })
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
 export function useApi() {
   const base = getBase();
   const csrf = useCsrf();
@@ -126,6 +146,19 @@ export function useApi() {
       if (isStateful && errorStatus(e) === 403) {
         csrf.invalidate();
         return await attempt();
+      }
+      // 401: access cookie (15min) likely expired — try the refresh cookie
+      // once, then replay. Auth endpoints themselves are excluded so a bad
+      // login/refresh doesn't loop.
+      if (
+        import.meta.client &&
+        errorStatus(e) === 401 &&
+        !path.startsWith('/api/auth/')
+      ) {
+        const token = (await csrf.ensure()) || '';
+        if (await tryRefreshSession(base, token)) {
+          return await attempt();
+        }
       }
       throw e;
     }

@@ -211,14 +211,6 @@ onMounted(() => {
     }),
   );
   offs.push(
-    socket.on('streamMessage', (payload) => {
-      const p = payload as { streamId: number; message: ChatMessage };
-      if (current.value && p.streamId === current.value.id) {
-        chatRef.value?.append(p.message);
-      }
-    }),
-  );
-  offs.push(
     socket.on('messageDeleted', (payload) => {
       const p = payload as { id: number };
       chatRef.value?.removeMessage(p.id);

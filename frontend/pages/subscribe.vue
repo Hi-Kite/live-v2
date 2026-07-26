@@ -39,8 +39,7 @@
 </template>
 
 <script setup lang="ts">
-const config = useRuntimeConfig();
-const csrf = useCsrf();
+const api = useApi();
 const toast = useToast();
 
 const captchaRef = ref<{ refresh?: () => void } | null>(null);
@@ -57,12 +56,11 @@ async function submit() {
   loading.value = true;
   errorMsg.value = '';
   try {
-    await csrf.ensure();
-    await $fetch('/api/subscriptions/subscribe', {
-      baseURL: config.public.apiBase as string,
-      method: 'POST',
-      credentials: 'include',
-      body: { email: email.value, captchaId: captchaId.value, captchaCode: code.value },
+    // useApi 会自动附带 X-CSRF-Token（原先的裸 $fetch 丢弃了令牌，必被 CsrfGuard 403）
+    await api.post('/api/subscriptions/subscribe', {
+      email: email.value,
+      captchaId: captchaId.value,
+      captchaCode: code.value,
     });
     done.value = true;
     toast.success('订阅成功');
