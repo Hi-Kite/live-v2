@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport :to="overlayTarget">
     <Transition name="modal">
       <div
         v-if="modelValue"
@@ -38,6 +38,9 @@
 </template>
 
 <script setup lang="ts">
+// 全屏模式下 body 上的浮层不可见，必须跟随 fullscreenElement
+const overlayTarget = useOverlayTarget();
+
 const props = withDefaults(
   defineProps<{
     modelValue: boolean;

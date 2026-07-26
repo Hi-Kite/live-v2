@@ -14,8 +14,13 @@ export class ChatService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listByStream(streamId: number, take = 50): Promise<ChatMessageDto[]> {
+    return this.listByStreams([streamId], take);
+  }
+
+  /** PK 对战时聊天池覆盖多个直播间：按时间合并多个房间的历史 */
+  async listByStreams(streamIds: number[], take = 50): Promise<ChatMessageDto[]> {
     const msgs = await this.prisma.message.findMany({
-      where: { streamId },
+      where: { streamId: { in: streamIds } },
       orderBy: { createdAt: 'desc' },
       take,
       include: { user: { select: { id: true, username: true } } },
@@ -52,9 +57,5 @@ export class ChatService {
       createdAt: msg.createdAt,
       user: msg.user,
     };
-  }
-
-  async delete(id: number): Promise<void> {
-    await this.prisma.message.delete({ where: { id } });
   }
 }

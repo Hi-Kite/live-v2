@@ -32,7 +32,7 @@
         <div
           v-for="m in messages"
           :key="m.id"
-          class="group flex gap-2 text-sm"
+          class="group -mx-2 flex gap-2 rounded-lg px-2 py-1 text-sm transition-colors hover:bg-ink/[0.04]"
         >
           <UiAvatar :name="m.user.username" size="sm" />
           <div class="min-w-0 flex-1">
@@ -40,14 +40,14 @@
               <span class="font-medium">{{ m.user.username }}</span>
               <span class="text-xs text-soft">{{ formatTime(m.createdAt) }}</span>
               <button
-                v-if="auth.isAdmin"
+                v-if="auth.isAdmin && m.user.id !== auth.user?.id"
                 type="button"
-                class="-m-1 rounded p-1 leading-none text-red-500 opacity-0 transition-opacity hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
-                aria-label="删除消息"
-                title="删除消息"
-                @click="emitDelete(m.id)"
+                class="-m-1 rounded p-1 text-xs leading-none text-soft opacity-0 transition-opacity hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100"
+                :aria-label="`禁言 ${m.user.username}`"
+                title="禁言该用户"
+                @click="openMute(m.user)"
               >
-                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                禁言
               </button>
             </div>
             <p class="break-words text-ink">{{ m.content }}</p>
@@ -87,15 +87,30 @@
             发送
           </UiButton>
         </div>
-        <div class="mt-2 flex items-center gap-3 text-xs text-soft">
-          <label class="flex cursor-pointer items-center gap-1">
-            <input v-model="danmakuOn" type="checkbox" class="rounded" />
-            弹幕
-          </label>
-          <span>{{ draft.length }}/500</span>
+        <div v-if="draft.length >= 400" class="mt-1.5 text-right text-xs text-soft">
+          {{ draft.length }}/500
         </div>
       </template>
     </div>
+
+    <UiModal v-model:model-value="showMute" title="禁言用户" size="sm">
+      <p class="text-sm text-soft">
+        将禁止 <strong class="font-semibold text-ink">{{ muteTarget?.username }}</strong>
+        在所有直播间发言，选择时长：
+      </p>
+      <div class="grid grid-cols-3 gap-2">
+        <UiButton
+          v-for="opt in MUTE_OPTIONS"
+          :key="opt.minutes"
+          variant="secondary"
+          size="sm"
+          @click="doMute(opt.minutes)"
+        >
+          {{ opt.label }}
+        </UiButton>
+      </div>
+      <UiButton variant="ghost" size="sm" block @click="doMute(0)">解除该用户的禁言</UiButton>
+    </UiModal>
   </div>
 </template>
 
@@ -110,7 +125,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'send-danmaku': [text: string];
-  'delete': [id: number];
 }>();
 
 const auth = useAuthStore();
@@ -119,11 +133,30 @@ const messages = ref<ChatMessage[]>([...props.initialMessages]);
 const draft = ref('');
 const sending = ref(false);
 const online = ref(0);
-const danmakuOn = ref(true);
 const listEl = ref<HTMLElement | null>(null);
 const newCount = ref(0);
 
 const NEAR_BOTTOM_PX = 80;
+
+const MUTE_OPTIONS = [
+  { label: '10 分钟', minutes: 10 },
+  { label: '1 小时', minutes: 60 },
+  { label: '24 小时', minutes: 24 * 60 },
+];
+
+const showMute = ref(false);
+const muteTarget = ref<{ id: number; username: string } | null>(null);
+
+function openMute(user: { id: number; username: string }) {
+  muteTarget.value = user;
+  showMute.value = true;
+}
+
+function doMute(minutes: number) {
+  if (!muteTarget.value) return;
+  useSocket().emit('muteUser', { userId: muteTarget.value.id, minutes });
+  showMute.value = false;
+}
 
 function formatTime(s: string): string {
   try {
@@ -158,16 +191,12 @@ function append(m: ChatMessage) {
   const wasNearBottom = isNearBottom();
   messages.value.push(m);
   if (messages.value.length > 200) messages.value = messages.value.slice(-200);
-  if (danmakuOn.value) emit('send-danmaku', m.content);
+  emit('send-danmaku', m.content);
   if (wasNearBottom) {
     scrollToBottom();
   } else {
     newCount.value++;
   }
-}
-
-function emitDelete(id: number) {
-  emit('delete', id);
 }
 
 function onEnter(e: KeyboardEvent) {
@@ -204,9 +233,6 @@ defineExpose({
     newCount.value = 0;
     scrollToBottom();
   },
-  removeMessage(id: number) {
-    messages.value = messages.value.filter((m) => m.id !== id);
-  },
   setOnline(n: number) {
     online.value = n;
   },
@@ -218,19 +244,39 @@ watch(() => props.initialMessages, () => {
   scrollToBottom();
 });
 
-let offError: (() => void) | undefined;
+const offs: Array<() => void> = [];
 
 onMounted(() => {
   scrollToBottom();
+  const socket = useSocket();
   // 服务端限流/校验失败会通过 error 事件回告发送者
-  offError = useSocket().on('error', (payload) => {
-    const msg = (payload as { message?: string } | undefined)?.message;
-    if (msg) toast.error(msg);
-  });
+  offs.push(
+    socket.on('error', (payload) => {
+      const msg = (payload as { message?: string } | undefined)?.message;
+      if (msg) toast.error(msg);
+    }),
+  );
+  // 管理员禁言/解禁操作的回执
+  offs.push(
+    socket.on('muteResult', (payload) => {
+      const p = payload as { username: string; minutes: number };
+      if (p.minutes <= 0) toast.success(`已解除 ${p.username} 的禁言`);
+      else toast.success(`已禁言 ${p.username}（${p.minutes >= 60 ? `${Math.round(p.minutes / 60)} 小时` : `${p.minutes} 分钟`}）`);
+    }),
+  );
+  // 服务端只发给当事人（user:<id> 房间）
+  offs.push(
+    socket.on('muted', (payload) => {
+      const p = payload as { userId: number; minutes: number };
+      if (!auth.user || p.userId !== auth.user.id) return;
+      if (p.minutes <= 0) toast.info('你的禁言已被解除');
+      else toast.error(`你已被管理员禁言（${p.minutes >= 60 ? `${Math.round(p.minutes / 60)} 小时` : `${p.minutes} 分钟`}）`);
+    }),
+  );
 });
 
 onBeforeUnmount(() => {
-  offError?.();
+  offs.splice(0).forEach((off) => off());
 });
 </script>
 

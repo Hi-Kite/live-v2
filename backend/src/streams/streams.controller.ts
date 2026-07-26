@@ -9,13 +9,43 @@ import {
   Post,
 } from '@nestjs/common';
 import { StreamsService } from './streams.service';
-import { CreateStreamDto, UpdateStreamDto } from './dto';
+import { CreateStreamDto, UpdateStreamDto, StartPkDto } from './dto';
 import { Public } from '../auth/public.decorator';
 import { Roles } from '../common/roles.guard';
+import { ChatGateway } from '../chat/chat.gateway';
 
 @Controller('streams')
 export class StreamsController {
-  constructor(private readonly streams: StreamsService) {}
+  constructor(
+    private readonly streams: StreamsService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
+
+  @Public()
+  @Get('pk/active')
+  activePk() {
+    return this.streams.activePk();
+  }
+
+  @Roles('ADMIN')
+  @Post('pk')
+  async startPk(@Body() dto: StartPkDto) {
+    const session = await this.streams.startPk(dto.streamAId, dto.streamBId);
+    this.chatGateway.announcePkStarted({
+      id: session.id,
+      streamAId: session.streamAId,
+      streamBId: session.streamBId,
+    });
+    return session;
+  }
+
+  @Roles('ADMIN')
+  @Post('pk/:id/end')
+  async endPk(@Param('id', ParseIntPipe) id: number) {
+    const result = await this.streams.endPk(id);
+    this.chatGateway.announcePkEnded(id);
+    return result;
+  }
 
   @Public()
   @Get()

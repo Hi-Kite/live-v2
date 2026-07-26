@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport :to="overlayTarget">
     <div class="pointer-events-none fixed right-4 top-4 z-[60] flex w-full max-w-xs flex-col gap-2" aria-live="polite">
       <TransitionGroup name="toast">
         <div
@@ -28,6 +28,9 @@
 
 <script setup lang="ts">
 import type { ToastItem } from '~/composables/useToast';
+
+// 全屏模式下 body 上的浮层不可见，必须跟随 fullscreenElement
+const overlayTarget = useOverlayTarget();
 
 const { toasts, dismiss } = useToast();
 

@@ -6,6 +6,57 @@
     </div>
     <AdminNav />
 
+    <!-- PK 对战管理 -->
+    <section class="card space-y-3 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-bold">主播对战（PK）</h2>
+          <p class="mt-0.5 text-sm text-soft">
+            对战期间两个直播间共享同一个聊天池，观众可在对战页为双方点赞。
+          </p>
+        </div>
+        <UiBadge v-if="activePk" variant="live" dot pulse>对战进行中</UiBadge>
+      </div>
+
+      <template v-if="activePk">
+        <div class="flex flex-wrap items-center gap-3 text-sm font-medium">
+          <span>{{ pkTitle(activePk.streams[0]?.id) }}</span>
+          <span class="text-xs font-black italic text-rose-500">VS</span>
+          <span>{{ pkTitle(activePk.streams[1]?.id) }}</span>
+        </div>
+        <div class="flex gap-2">
+          <UiButton variant="danger" size="sm" :loading="pkBusy" @click="endPk">结束对战</UiButton>
+          <UiButton to="/pvp" variant="secondary" size="sm">查看对战页</UiButton>
+        </div>
+      </template>
+      <template v-else>
+        <div class="flex flex-wrap items-end gap-3">
+          <UiFormField label="A 方" class="w-44">
+            <template #default="{ id }">
+              <select :id="id" v-model.number="pkA" class="input">
+                <option :value="0" disabled>选择直播间</option>
+                <option v-for="s in streams" :key="s.id" :value="s.id">{{ s.title }}</option>
+              </select>
+            </template>
+          </UiFormField>
+          <UiFormField label="B 方" class="w-44">
+            <template #default="{ id }">
+              <select :id="id" v-model.number="pkB" class="input">
+                <option :value="0" disabled>选择直播间</option>
+                <option v-for="s in streams" :key="s.id" :value="s.id" :disabled="s.id === pkA">
+                  {{ s.title }}
+                </option>
+              </select>
+            </template>
+          </UiFormField>
+          <UiButton :disabled="!pkA || !pkB || pkA === pkB" :loading="pkBusy" @click="startPk">
+            发起对战
+          </UiButton>
+        </div>
+        <p v-if="streams.length < 2" class="text-xs text-soft">需要至少两个直播间才能发起对战。</p>
+      </template>
+    </section>
+
     <UiTable :empty="!loading && !loadError && streams.length === 0" empty-text="还没有直播间，点击「新建直播间」创建">
       <template #head>
         <th>标题</th>
@@ -136,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import type { AdminStream } from '~/composables/useApi';
+import type { AdminStream, PkActive } from '~/composables/useApi';
 
 definePageMeta({ middleware: 'admin' });
 
@@ -277,11 +328,63 @@ async function confirmDelete(s: AdminStream) {
   }
 }
 
+// ---------- PK 对战 ----------
+
+const activePk = ref<PkActive | null>(null);
+const pkA = ref(0);
+const pkB = ref(0);
+const pkBusy = ref(false);
+
+function pkTitle(id?: number): string {
+  return streams.value.find((s) => s.id === id)?.title || `#${id ?? '?'}`;
+}
+
+async function loadPk() {
+  try {
+    const res = await api.get<PkActive>('/api/streams/pk/active');
+    activePk.value = res.session ? res : null;
+  } catch {
+    // 非核心信息，加载失败静默
+  }
+}
+
+async function startPk() {
+  if (pkBusy.value || !pkA.value || !pkB.value) return;
+  pkBusy.value = true;
+  try {
+    await api.post('/api/streams/pk', { streamAId: pkA.value, streamBId: pkB.value });
+    toast.success('对战已发起');
+    await loadPk();
+  } catch (e: unknown) {
+    toast.error(apiErrorMessage(e, '发起对战失败'));
+  } finally {
+    pkBusy.value = false;
+  }
+}
+
+async function endPk() {
+  const id = activePk.value?.session?.id;
+  if (pkBusy.value || !id) return;
+  pkBusy.value = true;
+  try {
+    await api.post(`/api/streams/pk/${id}/end`, {});
+    toast.success('对战已结束');
+    activePk.value = null;
+    pkA.value = 0;
+    pkB.value = 0;
+  } catch (e: unknown) {
+    toast.error(apiErrorMessage(e, '结束对战失败'));
+  } finally {
+    pkBusy.value = false;
+  }
+}
+
 onMounted(() => {
   if (typeof window !== 'undefined' && window.location?.hostname) {
     rtmpUrl.value = `rtmp://${window.location.hostname}:1935/live/`;
   }
   load(true);
+  loadPk();
 });
 
 useHead({ title: '直播间管理 — 后台' });

@@ -3,6 +3,7 @@ import {
   MinLength,
   MaxLength,
   IsOptional,
+  IsInt,
   Matches,
 } from 'class-validator';
 
@@ -40,4 +41,12 @@ export class UpdateStreamDto {
   @IsString()
   @Matches(/^[a-z0-9-]+$/)
   slug?: string;
+}
+
+export class StartPkDto {
+  @IsInt()
+  streamAId!: number;
+
+  @IsInt()
+  streamBId!: number;
 }

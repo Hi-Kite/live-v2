@@ -18,10 +18,16 @@ export interface StreamPublic {
   liveStatus: boolean;
   actualLive: boolean;
   startedAt: string | null;
+  likeCount: number;
 }
 
 export interface StreamDetail extends StreamPublic {
   playback: { hls: string; flv: string; webrtc: string };
+}
+
+export interface PkActive {
+  session: { id: number; createdAt: string } | null;
+  streams: StreamDetail[];
 }
 
 export interface ChatMessage {
@@ -30,6 +36,8 @@ export interface ChatMessage {
   content: string;
   createdAt: string;
   user: { id: number; username: string };
+  /** PK 期间该消息所属聊天池覆盖的直播间 id */
+  poolStreamIds?: number[];
 }
 
 export interface AdminStream {

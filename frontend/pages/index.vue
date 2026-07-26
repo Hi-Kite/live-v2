@@ -50,6 +50,7 @@
           <div class="relative">
             <ArtplayerView
               v-if="current.actualLive || current.liveStatus"
+              ref="playerRef"
               :key="current.id + '-' + (current.actualLive ? 'live' : 'offline')"
               :src="current.playback.flv"
               :kind="'flv'"
@@ -61,41 +62,43 @@
               </template>
             </ArtplayerView>
 
-            <div
-              v-else
-              class="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-slate-900 text-white"
-            >
-              <div class="flex h-16 w-16 items-center justify-center rounded-full bg-brand-600/20">
-                <svg viewBox="0 0 24 24" class="h-8 w-8 text-brand-400" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-              <p class="text-sm text-slate-300">{{ current.title }} 当前未开播</p>
-              <p class="text-xs text-slate-500">开播后将自动播放</p>
-            </div>
+            <StreamOfflinePanel v-else :title="`${current.title} 当前未开播`" />
           </div>
 
-          <div class="flex items-center justify-between gap-3 border-t border-line p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-line p-4">
             <div class="min-w-0">
               <h1 class="truncate text-lg font-bold">{{ current.title }}</h1>
               <p v-if="current.description" class="mt-0.5 line-clamp-1 text-xs text-soft">
                 {{ current.description }}
               </p>
             </div>
-            <LiveBadge :live="current.actualLive" />
+            <div class="flex shrink-0 items-center gap-3">
+              <DanmakuSizeControl class="hidden sm:flex" />
+              <LikeButton :stream-id="current.id" :count="current.likeCount" />
+              <LiveBadge :live="current.actualLive" />
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- chat -->
-      <div class="card flex h-[600px] flex-col overflow-hidden lg:h-auto">
-        <ChatPanel
-          v-if="chatMounted"
-          ref="chatRef"
-          :stream-id="current.id"
-          :initial-messages="initialMessages"
-          @send-danmaku="(t) => danmakuRef?.push(t)"
-          @delete="onDeleteMessage"
-        />
-      </div>
+      <!-- chat（全屏时 Teleport 到播放器内的停靠区） -->
+      <Teleport :to="chatTarget" :disabled="!chatDocked">
+        <div
+          :class="
+            chatDocked
+              ? 'flex h-full w-full flex-col overflow-hidden border-l border-line/60 bg-surface/90 backdrop-blur-md'
+              : 'card flex h-[600px] flex-col overflow-hidden lg:h-auto'
+          "
+        >
+          <ChatPanel
+            v-if="chatMounted"
+            ref="chatRef"
+            :stream-id="current.id"
+            :initial-messages="initialMessages"
+            @send-danmaku="(t) => danmakuRef?.push(t)"
+          />
+        </div>
+      </Teleport>
     </div>
 
     <!-- loading skeleton -->
@@ -135,6 +138,11 @@ const detailError = ref('');
 
 const chatRef = ref<InstanceType<typeof import('~/components/ChatPanel.vue').default> | null>(null);
 const danmakuRef = ref<{ push: (t: string) => void } | null>(null);
+
+// 全屏聊天停靠：播放器全屏时把聊天面板 Teleport 进播放器内
+const playerRef = ref<{ dockEl: HTMLElement | null; isFullscreen: boolean } | null>(null);
+const chatDocked = computed(() => !!(playerRef.value?.isFullscreen && playerRef.value.dockEl));
+const chatTarget = computed<HTMLElement | string>(() => playerRef.value?.dockEl ?? 'body');
 
 const current = computed(() => (activeId.value && details.value[activeId.value]) || null);
 
@@ -205,15 +213,19 @@ onMounted(() => {
   offs.push(
     socket.on('message', (payload) => {
       const m = payload as ChatMessage;
-      if (current.value && m.streamId === current.value.id) {
-        chatRef.value?.append(m);
-      }
+      // PK 期间共享聊天池：对战双方的消息都要收
+      const mine =
+        current.value &&
+        (m.streamId === current.value.id ||
+          m.poolStreamIds?.includes(current.value.id));
+      if (mine) chatRef.value?.append(m);
     }),
   );
   offs.push(
-    socket.on('messageDeleted', (payload) => {
-      const p = payload as { id: number };
-      chatRef.value?.removeMessage(p.id);
+    socket.on('likeCount', (payload) => {
+      const p = payload as { streamId: number; count: number };
+      const d = details.value[p.streamId];
+      if (d) d.likeCount = p.count;
     }),
   );
   offs.push(
@@ -251,10 +263,6 @@ onMounted(() => {
 onUnmounted(() => {
   offs.splice(0).forEach((off) => off());
 });
-
-function onDeleteMessage(id: number) {
-  socket.emit('deleteMessage', { messageId: id, streamId: current.value?.id });
-}
 
 useHead({ title: '直播 — LIVE' });
 </script>

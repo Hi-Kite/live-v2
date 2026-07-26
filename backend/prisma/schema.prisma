@@ -24,6 +24,7 @@ model User {
   password        String
   role            Role      @default(USER)
   emailVerified   DateTime?
+  mutedUntil      DateTime?
   twoFactorSecret String?
   twoFactorEnabled Boolean  @default(false)
   createdAt       DateTime  @default(now())
@@ -44,12 +45,30 @@ model Stream {
   streamKey   String    @unique
   liveStatus  Boolean   @default(false)
   startedAt   DateTime?
+  likeCount   Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   messages    Message[]
+  pkAsA       PkSession[] @relation("PkStreamA")
+  pkAsB       PkSession[] @relation("PkStreamB")
 
   @@index([liveStatus])
+}
+
+/// 一场 PK 对战：两个直播间在会话期间共享同一个聊天池
+model PkSession {
+  id        Int       @id @default(autoincrement())
+  streamAId Int
+  streamBId Int
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  streamA Stream @relation("PkStreamA", fields: [streamAId], references: [id], onDelete: Cascade)
+  streamB Stream @relation("PkStreamB", fields: [streamBId], references: [id], onDelete: Cascade)
+
+  @@index([active])
 }
 
 model Message {

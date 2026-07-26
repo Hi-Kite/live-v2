@@ -1,5 +1,5 @@
 <template>
-  <div ref="layerEl" class="danmaku-layer" aria-hidden="true">
+  <div ref="layerEl" class="danmaku-layer" :style="{ fontSize }" aria-hidden="true">
     <div
       v-for="d in items"
       :key="d.id"
@@ -45,6 +45,12 @@ const props = withDefaults(
   },
 );
 
+const { fontSize } = useDanmakuSize();
+/** 轨道高度跟随字号（rem→px，×1.7 行距），避免大字号轨道重叠 */
+const trackHeight = computed(() =>
+  Math.ceil(parseFloat(fontSize.value) * 16 * 1.7) || props.trackHeight,
+);
+
 const visible = ref(true);
 const items = ref<Danmaku[]>([]);
 const layerEl = ref<HTMLElement | null>(null);
@@ -77,7 +83,12 @@ function push(text: string) {
   // respect prefers-reduced-motion: skip the fly animation entirely
   if (!text || reducedMotion.value || items.value.length >= props.max) return;
   const id = ++counter;
-  const top = (trackCursor % props.trackCount) * props.trackHeight + 8;
+  // 可用轨道数按容器实际高度收缩：小尺寸播放器 + 大字号时不把弹幕排到可视区外
+  const layerH = layerEl.value?.clientHeight ?? 0;
+  const usableTracks = layerH
+    ? Math.max(1, Math.min(props.trackCount, Math.floor((layerH - 8) / trackHeight.value)))
+    : props.trackCount;
+  const top = (trackCursor % usableTracks) * trackHeight.value + 8;
   trackCursor++;
   const duration = props.durationMs + Math.random() * 2000;
   items.value.push({ id, text, top, duration, flyX: null });
@@ -133,11 +144,14 @@ defineExpose({ push, toggle, clear, visible });
   position: absolute;
   left: 100%;
   white-space: nowrap;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 1em; /* 跟随图层字号（useDanmakuSize） */
+  font-weight: 700;
+  letter-spacing: 0.01em;
   line-height: 1.4;
   color: #fff;
-  text-shadow: 0 1px 3px rgb(0 0 0 / 0.85);
+  text-shadow:
+    0 0 1px rgb(0 0 0 / 0.6),
+    0 2px 6px rgb(0 0 0 / 0.8);
   will-change: transform;
   transform: translateX(0);
   transition: opacity 0.2s ease;
