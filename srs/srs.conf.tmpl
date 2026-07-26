@@ -1,5 +1,8 @@
 # SRS 5 configuration for live.afsmc.cn v2
 # RTMP ingest + HTTP-FLV + HLS + WebRTC
+#
+# NOTE: this is a template. srs/entrypoint.sh substitutes $CANDIDATE at
+# container start and writes the rendered srs.conf.
 
 listen              1935;
 max_connections     1000;
@@ -9,21 +12,48 @@ srs_log_tank        console;
 http_server {
     enabled         on;
     listen          8080;
-    dir             ./objs/nginx;
+    # Must match hls_path below — HLS playlists/segments are written under
+    # objs/nginx/html and served from the same web root.
+    dir             ./objs/nginx/html;
 }
 
-http_remux {
+http_api {
     enabled         on;
-    mount           [vhost]/[app]/[stream].flv;
-    hstrs           on;
+    listen          1985;
+}
+
+stats {
+    network         0;
+}
+
+rtc_server {
+    enabled         on;
+    listen          8000;
+    candidate       $CANDIDATE;
 }
 
 vhost __defaultVhost__ {
+    chunk_size      60000;
+
+    # Publish authentication: SRS asks the backend before accepting a
+    # publish. OBS pushes stream name "<slug>?key=<streamKey>"; the backend
+    # validates the key and answers {code:0} (allow) or {code:1} (reject).
+    http_hooks {
+        enabled         on;
+        on_publish      http://backend:3001/api/srs/hooks/on-publish;
+        on_unpublish    http://backend:3001/api/srs/hooks/on-unpublish;
+    }
+
     hls {
         enabled         on;
         hls_path        ./objs/nginx/html;
         hls_fragment    2;
         hls_window      10;
+    }
+
+    http_remux {
+        enabled         on;
+        mount           [vhost]/[app]/[stream].flv;
     }
 
     rtc {
@@ -33,37 +63,9 @@ vhost __defaultVhost__ {
         rtmp_to_rtc     on;
     }
 
-    http_remux {
-        enabled         on;
-    }
-
     play {
         gop_cache       on;
         queue_length    10;
         time_jitter     full;
     }
-
-    publish {
-        chunk_size      60000;
-    }
-
-    gzip on;
-}
-
-http_api {
-    enabled         on;
-    listen          1985;
-    auth {
-        enabled     off;
-    }
-}
-
-stats {
-    network        0;
-}
-
-rtc_server {
-    enabled         on;
-    listen          8000;
-    candidate       $CANDIDATE;
 }

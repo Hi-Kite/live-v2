@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `PasswordReset` ADD COLUMN `purpose` ENUM('RESET', 'VERIFY') NOT NULL DEFAULT 'RESET';

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Render SRS config with envsubst so $CANDIDATE is replaced at runtime.
-# Usage: the docker service sets CANDIDATE to the server's public IP.
+# Render SRS config: substitute $CANDIDATE at runtime.
+# Uses sed instead of envsubst because the ossrs/srs image does not ship
+# gettext. The docker service sets CANDIDATE to the server's public IP.
 set -e
 
 TEMPLATE=/usr/local/srs/conf/srs.conf.tmpl
@@ -11,5 +12,13 @@ if [ -z "$CANDIDATE" ]; then
   CANDIDATE="127.0.0.1"
 fi
 
-envsubst '$CANDIDATE' < "$TEMPLATE" > "$TARGET"
+sed "s|\$CANDIDATE|${CANDIDATE}|g" "$TEMPLATE" > "$TARGET"
+
+# Fail fast with a clear message if the rendered config is invalid.
+if ! objs/srs -t -c "$TARGET"; then
+  echo "ERROR: rendered SRS config is invalid ($TARGET):" >&2
+  cat "$TARGET" >&2
+  exit 1
+fi
+
 exec objs/srs -c "$TARGET"

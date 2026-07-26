@@ -15,6 +15,13 @@ export class TwoFactorService {
     const appName = this.config.get<string>('APP_NAME') || 'LIVE';
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+    if (user.twoFactorEnabled) {
+      // Never silently overwrite an active 2FA secret: a hijacked session
+      // must not be able to neutralize 2FA without the current TOTP code.
+      throw new BadRequestException(
+        '2FA is already enabled; disable it with a valid code first',
+      );
+    }
 
     const secret = authenticator.generateSecret();
     const otpauth = authenticator.keyuri(user.email, appName, secret);

@@ -97,6 +97,9 @@ export class AdminService {
       liveStatus: s.liveStatus,
       startedAt: s.startedAt,
       createdAt: s.createdAt,
+      // OBS push config (admin-only): server URL + stream key with auth
+      // query param, ready to paste verbatim into OBS.
+      ...this.streams.pushInfo(s.slug, s.streamKey),
     }));
   }
 

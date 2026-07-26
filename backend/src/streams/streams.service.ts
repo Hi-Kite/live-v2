@@ -20,6 +20,18 @@ export class StreamsService {
     private readonly srs: SrsService,
   ) {}
 
+  /**
+   * OBS push config per contract: pushBase is the RTMP server URL, pushKey
+   * is '<slug>?key=<streamKey>'. Also used by AdminService for its stream
+   * listings — the streamKey itself must never leak into public payloads.
+   */
+  pushInfo(slug: string, streamKey: string): { pushBase: string; pushKey: string } {
+    return {
+      pushBase: this.srs.publishBase(),
+      pushKey: this.srs.publishKey(slug, streamKey),
+    };
+  }
+
   async listPublic() {
     const streams = await this.prisma.stream.findMany({
       orderBy: { createdAt: 'asc' },
@@ -32,7 +44,7 @@ export class StreamsService {
         description: s.description,
         liveStatus: s.liveStatus,
         startedAt: s.startedAt,
-        actualLive: await this.srs.isLive(s.streamKey),
+        actualLive: await this.srs.isLive(s.slug),
       })),
     );
   }
@@ -40,8 +52,8 @@ export class StreamsService {
   async getBySlug(slug: string) {
     const s = await this.prisma.stream.findUnique({ where: { slug } });
     if (!s) throw new NotFoundException('Stream not found');
-    const playback = this.srs.playbackUrls(s.streamKey);
-    const actualLive = await this.srs.isLive(s.streamKey);
+    const playback = this.srs.playbackUrls(s.slug);
+    const actualLive = await this.srs.isLive(s.slug);
     return {
       id: s.id,
       slug: s.slug,
@@ -81,7 +93,8 @@ export class StreamsService {
       title: s.title,
       description: s.description,
       streamKey: s.streamKey,
-      playback: this.srs.playbackUrls(s.streamKey),
+      ...this.pushInfo(s.slug, s.streamKey),
+      playback: this.srs.playbackUrls(s.slug),
     };
   }
 
@@ -138,6 +151,7 @@ export class StreamsService {
       slug: updated.slug,
       title: updated.title,
       streamKey: updated.streamKey,
+      ...this.pushInfo(updated.slug, updated.streamKey),
       liveStatus: updated.liveStatus,
       startedAt: updated.startedAt,
     };
@@ -168,10 +182,11 @@ export class StreamsService {
       title: s.title,
       description: s.description,
       streamKey: s.streamKey,
+      ...this.pushInfo(s.slug, s.streamKey),
       liveStatus: s.liveStatus,
       startedAt: s.startedAt,
       createdAt: s.createdAt,
-      playback: this.srs.playbackUrls(s.streamKey),
+      playback: this.srs.playbackUrls(s.slug),
     };
   }
 }

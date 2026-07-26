@@ -4,17 +4,25 @@ import {
   Get,
   Post,
   Query,
+  UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { IsEmail } from 'class-validator';
+import { IsEmail, IsString, Length } from 'class-validator';
 import { Public } from '../auth/public.decorator';
+import { RateLimit, RateLimitGuard } from '../common/rate-limit.guard';
 import { SubscriptionsService } from './subscriptions.service';
 import { CaptchaService } from '../captcha/captcha.service';
 
 class SubscribeDto {
   @IsEmail()
   email!: string;
+
+  @IsString()
+  @Length(1, 64)
   captchaId!: string;
+
+  @IsString()
+  @Length(1, 32)
   captchaCode!: string;
 }
 
@@ -26,11 +34,15 @@ export class SubscriptionsController {
   ) {}
 
   @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit('subscribe')
   @Post('subscribe')
   async subscribe(@Body() dto: SubscribeDto) {
     const ok = await this.captcha.verify(dto.captchaId, dto.captchaCode);
     if (!ok) throw new BadRequestException('Captcha incorrect');
     await this.subs.subscribe(dto.email);
+    // Generic response whether or not the email was already subscribed,
+    // so the endpoint cannot be used to enumerate subscriber addresses.
     return { subscribed: true };
   }
 

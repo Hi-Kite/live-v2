@@ -9,7 +9,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma, TokenPurpose } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { authenticator } from 'otplib';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -30,9 +32,28 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    // Fail fast at startup: a missing refresh secret in production would
+    // otherwise silently mint unverifiable (or forgeable) tokens.
+    this.refreshSecret();
+  }
+
+  private refreshSecret(): string {
+    const secret = this.config.get<string>('JWT_REFRESH_SECRET');
+    if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_REFRESH_SECRET must be set in production');
+      }
+      this.log.warn('JWT_REFRESH_SECRET not set — using insecure dev fallback');
+      return 'dev-refresh-secret';
+    }
+    return secret;
+  }
 
   async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase();
+    const username = dto.username.toLowerCase();
+
     const invite = await this.prisma.inviteCode.findUnique({
       where: { code: dto.inviteCode },
     });
@@ -41,38 +62,56 @@ export class AuthService {
     }
 
     const existsEmail = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email },
     });
     if (existsEmail) throw new ConflictException('Email already registered');
 
     const existsUser = await this.prisma.user.findUnique({
-      where: { username: dto.username.toLowerCase() },
+      where: { username },
     });
     if (existsUser) throw new ConflictException('Username already taken');
 
     const hash = await argon2.hash(dto.password);
     const verifyToken = randomBytes(32).toString('hex');
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email.toLowerCase(),
-        username: dto.username.toLowerCase(),
-        password: hash,
-      },
-    });
+    let user: { id: number; email: string; username: string };
+    try {
+      user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: { email, username, password: hash },
+          select: { id: true, email: true, username: true },
+        });
 
-    await this.prisma.passwordReset.create({
-      data: {
-        userId: user.id,
-        token: verifyToken,
-        expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
-      },
-    });
+        // Consume the invite atomically: the usedById filter makes concurrent
+        // registrations with the same code lose the race and roll back.
+        const consumed = await tx.inviteCode.updateMany({
+          where: { code: dto.inviteCode, usedById: null },
+          data: { usedById: created.id, usedAt: new Date() },
+        });
+        if (consumed.count !== 1) {
+          throw new ForbiddenException('Invalid or already used invite code');
+        }
 
-    await this.prisma.inviteCode.update({
-      where: { code: dto.inviteCode },
-      data: { usedById: user.id, usedAt: new Date() },
-    });
+        await tx.passwordReset.create({
+          data: {
+            userId: created.id,
+            token: verifyToken,
+            purpose: TokenPurpose.VERIFY,
+            expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
+          },
+        });
+
+        return created;
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('Email or username already taken');
+      }
+      throw e;
+    }
 
     const verifyUrl = `${this.config.get<string>('APP_URL')}/verify-email?token=${verifyToken}`;
     this.mail
@@ -97,9 +136,20 @@ export class AuthService {
 
     if (user.twoFactorEnabled) {
       if (!dto.twoFactorCode) {
-        throw new BadRequestException('2FA code required');
+        throw new UnauthorizedException({
+          message: '需要两步验证码',
+          code: 'TWO_FACTOR_REQUIRED',
+        });
       }
-      // verify handled in TwoFactorService via controller check; here we only gate.
+      const valid =
+        !!user.twoFactorSecret &&
+        authenticator.verify({
+          token: dto.twoFactorCode,
+          secret: user.twoFactorSecret,
+        });
+      if (!valid) {
+        throw new UnauthorizedException('两步验证码错误');
+      }
     }
 
     return user;
@@ -114,17 +164,61 @@ export class AuthService {
     };
     const accessToken = await this.jwt.signAsync(payload);
     const refreshToken = await this.jwt.signAsync(payload, {
-      secret: this.config.get<string>('JWT_REFRESH_SECRET'),
+      secret: this.refreshSecret(),
       expiresIn: this.config.get<string>('JWT_REFRESH_TTL') || '7d',
     });
     return { accessToken, refreshToken };
+  }
+
+  async refresh(refreshToken?: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token missing');
+    }
+
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.refreshSecret(),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!user) throw new UnauthorizedException('Invalid refresh token');
+
+    const tokens = await this.login({
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+    });
+    return {
+      tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role,
+        twoFactorEnabled: user.twoFactorEnabled,
+      },
+    };
   }
 
   async verifyEmail(token: string) {
     const record = await this.prisma.passwordReset.findUnique({
       where: { token },
     });
-    if (!record || record.used) throw new BadRequestException('Invalid token');
+    if (
+      !record ||
+      record.used ||
+      record.purpose !== TokenPurpose.VERIFY ||
+      record.expiresAt < new Date()
+    ) {
+      throw new BadRequestException('Invalid token');
+    }
 
     const user = await this.prisma.user.findUnique({
       where: { id: record.userId },
@@ -155,6 +249,7 @@ export class AuthService {
       data: {
         userId: user.id,
         token,
+        purpose: TokenPurpose.RESET,
         expiresAt: new Date(Date.now() + 3600 * 1000),
       },
     });
@@ -171,7 +266,12 @@ export class AuthService {
     const record = await this.prisma.passwordReset.findUnique({
       where: { token: dto.token },
     });
-    if (!record || record.used || record.expiresAt < new Date()) {
+    if (
+      !record ||
+      record.used ||
+      record.purpose !== TokenPurpose.RESET ||
+      record.expiresAt < new Date()
+    ) {
       throw new BadRequestException('Invalid or expired token');
     }
 

@@ -1,15 +1,9 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  UseGuards,
-} from '@nestjs/common';
-import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { Controller, Delete, Get } from '@nestjs/common';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UsersService } from './users.service';
 
+// Authentication is enforced by the global JwtAuthGuard (app.module.ts).
 @Controller('users')
-@UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 

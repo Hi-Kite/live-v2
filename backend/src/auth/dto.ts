@@ -1,4 +1,12 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -26,7 +34,10 @@ export class LoginDto {
   @IsString()
   password!: string;
 
+  @IsOptional()
   @IsString()
+  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'twoFactorCode must be a 6-digit code' })
   twoFactorCode?: string;
 }
 

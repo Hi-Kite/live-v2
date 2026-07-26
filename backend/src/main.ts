@@ -4,11 +4,20 @@ import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    cors: false,
+  });
   const config = app.get(ConfigService);
+
+  // The stack sits behind nginx: trust exactly one proxy hop so req.ip
+  // reflects the real client address (used by rate limiting / IP logging)
+  // instead of the nginx container IP, without honoring client-forged
+  // X-Forwarded-For chains.
+  app.set('trust proxy', 1);
 
   const origins = (config.get<string>('BACKEND_CORS_ORIGINS') || 'http://localhost:3000')
     .split(',')

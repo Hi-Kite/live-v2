@@ -8,12 +8,10 @@ export type ClientInfo = {
 export const ClientIp = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): ClientInfo => {
     const req = ctx.switchToHttp().getRequest();
-    const raw =
-      req.headers['x-forwarded-for'] ||
-      req.headers['x-real-ip'] ||
-      req.socket?.remoteAddress ||
-      '0.0.0.0';
-    const ip = String(raw).split(',')[0].trim();
+    // `trust proxy` is set to 1 in main.ts, so Express derives req.ip from
+    // X-Forwarded-For for the single trusted hop (nginx) only — a client
+    // cannot spoof it by forging the header.
+    const ip: string = req.ip || req.socket?.remoteAddress || '0.0.0.0';
     return { ip, key: `ip:${ip}` };
   },
 );

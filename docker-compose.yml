@@ -2,10 +2,21 @@
 #  LIVE v2 — production docker-compose
 #  Copy .env.example -> .env and edit before `docker compose up -d`.
 # =====================================================================
+
+# Bounded container logs so a long-running streaming box never fills the disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   mysql:
-    image: mysql:8
+    # Pinned to 8.0: mysql:8 now resolves to 8.4+, which removed
+    # --default-authentication-plugin and would crash-loop on boot.
+    image: mysql:8.0
     restart: unless-stopped
+    logging: *default-logging
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-livedb}
@@ -27,6 +38,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *default-logging
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
@@ -40,6 +52,7 @@ services:
   srs:
     image: ossrs/srs:5
     restart: unless-stopped
+    logging: *default-logging
     environment:
       CANDIDATE: ${SRS_CANDIDATE:-127.0.0.1}
     entrypoint: ["/bin/sh", "/usr/local/srs/conf/entrypoint.sh"]
@@ -49,9 +62,19 @@ services:
       - srs-record:/usr/local/srs/objs/nginx/html
     ports:
       - "1935:1935"       # RTMP ingest — OBS pushes here (must be public)
-      - "${SRS_HTTP_PORT:-8081}:8080"  # HTTP-FLV/HLS — proxied by nginx, but kept for direct access
-      - "${SRS_API_PORT:-1985}:1985"   # SRS HTTP API — backend uses this via internal network
       - "8000:8000/udp"   # WebRTC UDP
+      # HTTP-FLV/HLS (8080) and the SRS API (1985) are reached over the
+      # internal network (nginx / backend). Loopback-only for debugging —
+      # NEVER expose 1985 publicly: the API has no auth and lists streams.
+      - "127.0.0.1:${SRS_HTTP_PORT:-8081}:8080"
+      - "127.0.0.1:${SRS_API_PORT:-1985}:1985"
+    healthcheck:
+      # The ossrs image ships no curl/wget; bash /dev/tcp checks the API port.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/1985"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks: [internal, web]
 
   backend:
@@ -59,15 +82,44 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Only the variables the backend actually needs — no blanket env_file,
+    # so MYSQL_ROOT_PASSWORD etc. never enter this container.
     environment:
       NODE_ENV: production
+      APP_NAME: ${APP_NAME:-LIVE}
+      APP_URL: ${APP_URL}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
       DATABASE_URL: mysql://${MYSQL_USER:-liveuser}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-livedb}
       REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      CSRF_SECRET: ${CSRF_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-LIVE}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_INVITE_CODE: ${ADMIN_INVITE_CODE}
+      RATE_LIMIT_LOGIN_TTL: ${RATE_LIMIT_LOGIN_TTL:-60}
+      RATE_LIMIT_LOGIN_LIMIT: ${RATE_LIMIT_LOGIN_LIMIT:-5}
+      RATE_LIMIT_REGISTER_TTL: ${RATE_LIMIT_REGISTER_TTL:-3600}
+      RATE_LIMIT_REGISTER_LIMIT: ${RATE_LIMIT_REGISTER_LIMIT:-10}
+      RATE_LIMIT_MESSAGE_TTL: ${RATE_LIMIT_MESSAGE_TTL:-60}
+      RATE_LIMIT_MESSAGE_LIMIT: ${RATE_LIMIT_MESSAGE_LIMIT:-10}
+      # SRS internal endpoints (backend-only; never returned to browsers)
       SRS_RTMP_HOST: srs
       SRS_RTMP_PORT: "1935"
       SRS_HTTP_HOST: srs
@@ -75,7 +127,15 @@ services:
       SRS_API_HOST: srs
       SRS_API_PORT: "1985"
       SRS_WEBRTC_PORT: "8000"
-    env_file: [.env]
+      # Public push/playback bases (optional; derived from APP_URL if empty)
+      PUBLIC_RTMP_HOST: ${PUBLIC_RTMP_HOST:-}
+      PUBLIC_STREAM_BASE: ${PUBLIC_STREAM_BASE:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks: [internal, web]
 
   frontend:
@@ -84,7 +144,8 @@ services:
       dockerfile: Dockerfile
       args:
         # Public-facing URLs the browser will hit. Set in .env.
-        NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost/api}
+        # PUBLIC_API_BASE is an ORIGIN (no /api suffix — frontend adds it).
+        NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost}
         NUXT_PUBLIC_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost}
         NUXT_PUBLIC_APP_NAME: ${APP_NAME:-LIVE}
         # 备案号（留空则页脚不显示；国内服务器运营请填自有备案号）
@@ -93,24 +154,45 @@ services:
         NUXT_PUBLIC_MPS_NUMBER: ${MPS_NUMBER:-}
         NUXT_PUBLIC_MPS_URL: ${MPS_URL:-http://www.beian.gov.cn}
     restart: unless-stopped
+    logging: *default-logging
     depends_on: [backend]
+    # No env_file: the frontend must never receive platform secrets.
+    # NUXT_PUBLIC_* here are runtime overrides of runtimeConfig.public and
+    # are serialized into pages — they must ONLY contain public URLs.
     environment:
       NODE_ENV: production
-      # Server-side (SSR) calls use internal network
-      NUXT_PUBLIC_API_BASE: http://backend:3001
-    env_file: [.env]
+      NUXT_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost}
+      NUXT_PUBLIC_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost}
+      # Server-only base for SSR calls over the internal network
+      # (non-public runtimeConfig key; never sent to browsers).
+      NUXT_API_INTERNAL: http://backend:3001
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     networks: [internal, web]
 
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    depends_on: [frontend, backend, srs]
+    logging: *default-logging
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      srs:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+      # ACME webroot for certbot --webroot renewals (see README)
+      - ./nginx/certbot:/var/www/certbot:ro
     networks: [web]
 
 volumes:

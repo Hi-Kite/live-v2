@@ -6,8 +6,10 @@ WORKDIR /app
 # enable pnpm via corepack
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+# Strict lockfile install: a stale pnpm-lock.yaml must fail the build
+# loudly instead of silently shipping drifted dependencies.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY prisma ./prisma
 RUN npx prisma generate
@@ -25,8 +27,8 @@ ENV PORT=3001
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --prod --no-frozen-lockfile
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile
 
 COPY prisma ./prisma
 RUN npx prisma generate

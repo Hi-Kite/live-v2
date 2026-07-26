@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { randomBytes } from 'crypto';
 
@@ -8,14 +8,14 @@ export class SubscriptionsService {
 
   async subscribe(email: string): Promise<void> {
     const lower = email.toLowerCase();
-    const exists = await this.prisma.subscription.findUnique({
-      where: { email: lower },
-    });
-    if (exists) throw new ConflictException('Email already subscribed');
-
     const token = randomBytes(16).toString('hex');
-    await this.prisma.subscription.create({
-      data: { email: lower, token },
+    // Idempotent upsert: an already-subscribed address keeps its existing
+    // token and the caller gets the same generic success — no subscriber
+    // enumeration via 409, and no check-then-create race.
+    await this.prisma.subscription.upsert({
+      where: { email: lower },
+      update: {},
+      create: { email: lower, token },
     });
   }
 

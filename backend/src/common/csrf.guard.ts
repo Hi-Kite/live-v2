@@ -14,6 +14,12 @@ export class CsrfGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest<Request>();
     if (SAFE_METHODS.includes(req.method)) return true;
 
+    // SRS machine callbacks (on-publish/on-unpublish) cannot participate in
+    // CSRF; the hooks controller authenticates via the stream key instead.
+    const path = req.path || req.url;
+    if (path.startsWith('/srs/hooks/') || path.startsWith('/api/srs/hooks/'))
+      return true;
+
     if (req.url.startsWith('/api/captcha')) return true;
     if (req.url.startsWith('/api/subscriptions/unsubscribe') && req.method === 'GET')
       return true;

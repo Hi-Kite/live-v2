@@ -10,6 +10,7 @@ import {
   ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
+import { randomBytes } from 'crypto';
 import { AuthService } from './auth.service';
 import {
   RegisterDto,
@@ -20,7 +21,7 @@ import {
   VerifyEmailDto,
 } from './dto';
 import { Public } from './public.decorator';
-import { JwtAuthGuard } from '../common/jwt-auth.guard';
+import { RateLimit, RateLimitGuard } from '../common/rate-limit.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 
 const COOKIE_OPTS = {
@@ -30,18 +31,39 @@ const COOKIE_OPTS = {
   path: '/',
 };
 
+const ACCESS_COOKIE_MAX_AGE = 15 * 60 * 1000;
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+
 @Controller('auth')
 @UseInterceptors(ClassSerializerInterceptor)
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  private setAuthCookies(
+    res: Response,
+    tokens: { accessToken: string; refreshToken: string },
+  ) {
+    res.cookie('access_token', tokens.accessToken, {
+      ...COOKIE_OPTS,
+      maxAge: ACCESS_COOKIE_MAX_AGE,
+    });
+    res.cookie('refresh_token', tokens.refreshToken, {
+      ...COOKIE_OPTS,
+      maxAge: REFRESH_COOKIE_MAX_AGE,
+    });
+  }
+
   @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit('register')
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit('login')
   @Post('login')
   async login(
     @Body() dto: LoginDto,
@@ -54,14 +76,7 @@ export class AuthController {
       username: user.username,
       role: user.role,
     });
-    res.cookie('access_token', tokens.accessToken, {
-      ...COOKIE_OPTS,
-      maxAge: 15 * 60 * 1000,
-    });
-    res.cookie('refresh_token', tokens.refreshToken, {
-      ...COOKIE_OPTS,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    this.setAuthCookies(res, tokens);
     return {
       user: {
         id: user.id,
@@ -73,6 +88,20 @@ export class AuthController {
     };
   }
 
+  @Public()
+  @Post('refresh')
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { user, tokens } = await this.auth.refresh(
+      req.cookies?.['refresh_token'],
+    );
+    this.setAuthCookies(res, tokens);
+    return { user };
+  }
+
+  @Public()
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
     res.clearCookie('access_token', { path: '/' });
@@ -80,11 +109,9 @@ export class AuthController {
     return { ok: true };
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('me')
-  async me(@CurrentUser('id') userId: number, @Res() _res: Response) {
-    const u = await this.auth.findUserPublic(userId);
-    return u;
+  async me(@CurrentUser('id') userId: number) {
+    return this.auth.findUserPublic(userId);
   }
 
   @Public()
@@ -105,7 +132,6 @@ export class AuthController {
     return this.auth.resetPassword(dto);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('change-password')
   changePassword(
     @CurrentUser('id') userId: number,
@@ -119,7 +145,7 @@ export class AuthController {
   csrf(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     let token = req.cookies?.['csrf-token'];
     if (!token) {
-      token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      token = randomBytes(32).toString('hex');
       res.cookie('csrf-token', token, {
         httpOnly: false,
         secure: process.env.NODE_ENV === 'production',

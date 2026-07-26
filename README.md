@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 直播播放（RTMP 接入 → HTTP-FLV / HLS / WebRTC 分发）
+- 直播播放（RTMP 接入 → HTTP-FLV / HLS 分发；WebRTC 底层已预留，播放端暂未接入）
 - 实时聊天（WebSocket）+ 弹幕叠加
 - 用户系统：邀请码注册、邮箱验证、密码重置、修改密码、删除账号
 - 后台管理：直播间管理（创建/开播/停播/推流密钥）、用户管理、邀请码生成
@@ -44,15 +44,14 @@ nano .env    # 或 vim
 |------|------|------|
 | `APP_URL` | 你的站点完整 HTTPS 地址 | `https://live.example.com` |
 | `BACKEND_CORS_ORIGINS` | 同 APP_URL | `https://live.example.com` |
-| `PUBLIC_API_BASE` | 浏览器调用的 API 地址 | `https://live.example.com/api` |
+| `PUBLIC_API_BASE` | 浏览器调用的 API 基址（**不含** `/api` 后缀） | `https://live.example.com` |
 | `PUBLIC_WS_BASE` | 浏览器 WebSocket 地址 | `wss://live.example.com` |
 | `MYSQL_ROOT_PASSWORD` | 数据库 root 密码（强密码） | 随机 32 位 |
 | `MYSQL_PASSWORD` | 数据库业务密码（强密码） | 随机 32 位 |
-| `DATABASE_URL` | 内含上面 MYSQL_PASSWORD | 见模板 |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 生成：`openssl rand -hex 48` | 随机 |
 | `CSRF_SECRET` | 生成：`openssl rand -hex 32` | 随机 |
 | `SMTP_*` | 你企业邮箱的 SMTP | 见模板 |
-| `SRS_CANDIDATE` | **服务器公网 IP**（WebRTC 必须） | `203.0.113.10` |
+| `SRS_CANDIDATE` | 服务器公网 IP（WebRTC 预留用） | `203.0.113.10` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | 初始管理员账号 | 自定义强密码 |
 | `ADMIN_INVITE_CODE` | 初始注册邀请码 | 自定义 |
 
@@ -61,6 +60,10 @@ nano .env    # 或 vim
 |------|------|
 | `ICP_NUMBER` | ICP 备案号（国内服务器填自有备案号，页脚展示；留空不显示） |
 | `MPS_NUMBER` | 公安备案号（可选，页脚展示；留空不显示） |
+| `PUBLIC_RTMP_HOST` | OBS 推流地址里显示的主机名（留空则取 `APP_URL` 的域名） |
+| `PUBLIC_STREAM_BASE` | 播放地址前缀（留空则用相对路径经 nginx 代理，推荐） |
+
+> `DATABASE_URL` 无需配置：Docker Compose 会由 `MYSQL_*` 自动拼出，仅本地（无 Docker）开发时才手动设置。
 
 > 查公网 IP：`curl -s ifconfig.me`
 
@@ -73,14 +76,23 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
   -keyout privkey.pem -out fullchain.pem \
   -subj "/CN=live.example.com"
 
-# 方式 B：Let's Encrypt（正式上线用）—— 先临时启动只开 80 端口,
-# 用 certbot 拿证书后放进这个目录，再正式 up
+# 方式 B：Let's Encrypt（正式上线用）—— 首次签发用 standalone
+#（此时 nginx 尚未启动，80 端口空闲）
 certbot certonly --standalone -d live.example.com
 cp /etc/letsencrypt/live/live.example.com/fullchain.pem .
 cp /etc/letsencrypt/live/live.example.com/privkey.pem .
 
 cd ../..
 ```
+
+**证书续期（webroot 方式，无需停机）**：nginx 已将 `nginx/certbot/`
+挂载为 ACME webroot（`/.well-known/acme-challenge/` 走 80 端口），续期无需停 nginx：
+```bash
+certbot certonly --webroot -w /opt/live/nginx/certbot -d live.example.com
+cp /etc/letsencrypt/live/live.example.com/{fullchain,privkey}.pem /opt/live/nginx/certs/
+docker compose exec nginx nginx -s reload
+```
+建议放进 cron（每月执行一次即可，certbot 会自行判断是否需要续期）。
 
 > 如果暂时不要 HTTPS：编辑 `nginx/nginx.conf`，把 80 端口的 server 块改成直接反代（不重定向到 443），并注释掉 443 server 块。
 
@@ -110,15 +122,16 @@ open https://live.example.com
 3. 进 `/admin/streams`：
    - 种子已创建一个「主直播间」，点「推流地址」查看 server + stream key
    - 也可以「新建直播间」创建新的
-4. OBS 设置：
+4. OBS 设置（两项都从后台「推流地址」面板原样复制）：
    - 服务：自定义
    - 服务器：`rtmp://live.example.com:1935/live/`
-   - 推流密钥：后台显示的那串（如 `a1b2c3...`）
+   - 推流密钥：`<slug>?key=<streamKey>`（如 `main?key=a1b2c3...`）
+   - 推流由后端校验 key，key 不对会被 SRS 拒绝；播放地址只含 slug，不会泄露 key
 5. 后台点「开播」→ 观众在首页即可观看
 
 ### 日常运维
 ```bash
-# 查看所有服务状态
+# 查看所有服务状态（backend/frontend/srs 均带健康检查，STATUS 列会显示 healthy）
 docker compose ps
 
 # 查看某服务日志
@@ -187,6 +200,9 @@ git pull --ff-only
 docker compose build frontend          # 仅重建前端镜像
 docker compose up -d frontend          # 仅替换前端容器
 ```
+
+> nginx 通过 Docker 内置 DNS 动态解析上游（`resolver 127.0.0.11`），
+> 单独重建某个服务后**无需**重启 nginx。
 
 ### C. 前端「构建时配置」变更（必须重建前端镜像）
 
@@ -301,8 +317,9 @@ docker compose build frontend && docker compose up -d frontend
 **Q：页脚不显示备案号？**
 A：`.env` 里 `ICP_NUMBER` 留空就是默认不显示。国内服务器运营需填写自有备案号，填好后重建前端（见上一问）。`MPS_NUMBER`（公安备案）同理，可选。
 
-**Q：WebRTC 看不了，HTTP-FLV/HLS 正常？**
-A：`SRS_CANDIDATE` 没设成公网 IP，或服务器防火墙没开 `8000/udp`。
+**Q：有 WebRTC 播放吗？**
+A：播放端目前只接入了 HTTP-FLV 和 HLS。SRS 侧已预留 WebRTC（`SRS_CANDIDATE` + `8000/udp`），
+但前端播放器与 `/rtc` 信令代理尚未接入，后续版本再启用。
 
 **Q：OBS 推流连不上？**
 A：检查 1935 端口是否开放：`telnet live.example.com 1935`。

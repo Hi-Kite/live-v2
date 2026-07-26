@@ -6,16 +6,15 @@ import {
   Param,
   ParseIntPipe,
   Post,
-  UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { JwtAuthGuard } from '../common/jwt-auth.guard';
-import { Roles, RolesGuard } from '../common/roles.guard';
+import { Roles } from '../common/roles.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { CreateStreamDto } from '../streams/dto';
 
+// Authentication/authorization is enforced by the global JwtAuthGuard and
+// RolesGuard (app.module.ts); @Roles supplies the required-role metadata.
 @Controller('admin')
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}

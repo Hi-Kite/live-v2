@@ -19,15 +19,30 @@ export interface SrsStreamInfo {
 }
 
 export interface PlaybackUrls {
-  rtmpPush: string;
   httpFlv: string;
   hls: string;
+  /**
+   * SRS5 WebRTC playback needs dedicated /rtc signaling which is not wired
+   * up; kept as an empty string so existing frontend types keep compiling.
+   */
   webrtc: string;
 }
+
+/** How long the SRS streams list is served from memory. */
+const STREAMS_CACHE_TTL_MS = 4000;
+/** Timeout for outbound calls to the SRS HTTP API. */
+const SRS_FETCH_TIMEOUT_MS = 3000;
 
 @Injectable()
 export class SrsService {
   private readonly log = new Logger(SrsService.name);
+
+  /**
+   * Tiny in-memory cache of the SRS streams list. Storing the in-flight
+   * promise also deduplicates concurrent lookups (e.g. listPublic fanning
+   * out one isLive check per stream).
+   */
+  private streamsCache: { expiresAt: number; promise: Promise<SrsStreamInfo[]> } | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -36,8 +51,25 @@ export class SrsService {
   }
 
   async listStreams(): Promise<SrsStreamInfo[]> {
+    const now = Date.now();
+    if (this.streamsCache && this.streamsCache.expiresAt > now) {
+      return this.streamsCache.promise;
+    }
+    const promise = this.fetchStreams();
+    this.streamsCache = { expiresAt: now + STREAMS_CACHE_TTL_MS, promise };
+    return promise;
+  }
+
+  /** Drop the cached streams list (called by the SRS publish/unpublish hooks). */
+  invalidateStreamsCache(): void {
+    this.streamsCache = null;
+  }
+
+  private async fetchStreams(): Promise<SrsStreamInfo[]> {
     try {
-      const res = await fetch(`${this.apiBase}/api/v1/streams/`);
+      const res = await fetch(`${this.apiBase}/api/v1/streams/`, {
+        signal: AbortSignal.timeout(SRS_FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) return [];
       const data = (await res.json()) as { streams?: SrsStreamInfo[] };
       return data.streams ?? [];
@@ -47,34 +79,63 @@ export class SrsService {
     }
   }
 
-  async getStreamByName(name: string): Promise<SrsStreamInfo | null> {
+  /**
+   * Whether a stream is actually being published to SRS. Publish names are
+   * slug-based (OBS pushes live/<slug>?key=<streamKey>), so this matches on
+   * the slug, never the stream key.
+   */
+  async isLive(slug: string): Promise<boolean> {
+    const streams = await this.listStreams();
+    return streams.some(
+      (s) => s.app === 'live' && s.name === slug && s.publish?.active === true,
+    );
+  }
+
+  /**
+   * Public playback URLs, slug-based — the stream key never appears here.
+   * Built from PUBLIC_STREAM_BASE (e.g. https://live.example.com/streams,
+   * proxied by nginx to SRS); falls back to the path-only /streams prefix so
+   * browsers inherit scheme/host from the page origin.
+   */
+  playbackUrls(slug: string): PlaybackUrls {
+    const base = (this.config.get<string>('PUBLIC_STREAM_BASE') || '/streams').replace(
+      /\/+$/,
+      '',
+    );
+    const name = encodeURIComponent(slug);
+    return {
+      httpFlv: `${base}/live/${name}.flv`,
+      hls: `${base}/live/${name}.m3u8`,
+      webrtc: '',
+    };
+  }
+
+  /**
+   * RTMP base URL shown to admins for OBS ("server" field):
+   * rtmp://<public host>:1935/live/
+   */
+  publishBase(): string {
+    const host =
+      this.config.get<string>('PUBLIC_RTMP_HOST') || this.appUrlHost() || 'localhost';
+    const port = this.config.get<string>('PUBLIC_RTMP_PORT', '1935');
+    return `rtmp://${host}:${port}/live/`;
+  }
+
+  /**
+   * OBS "stream key" field: <slug>?key=<streamKey>. The key is validated
+   * server-side by the SRS on-publish hook.
+   */
+  publishKey(slug: string, streamKey: string): string {
+    return `${slug}?key=${streamKey}`;
+  }
+
+  private appUrlHost(): string | null {
+    const appUrl = this.config.get<string>('APP_URL');
+    if (!appUrl) return null;
     try {
-      const res = await fetch(`${this.apiBase}/api/v1/streams/${encodeURIComponent(name)}`);
-      if (!res.ok) return null;
-      const data = (await res.json()) as { stream?: SrsStreamInfo };
-      return data.stream ?? null;
+      return new URL(appUrl).hostname;
     } catch {
       return null;
     }
-  }
-
-  async isLive(streamKey: string): Promise<boolean> {
-    const s = await this.getStreamByName(streamKey);
-    return !!s && s.publish?.active === true;
-  }
-
-  playbackUrls(streamKey: string): PlaybackUrls {
-    const rtmpHost = this.config.get<string>('SRS_RTMP_HOST', 'localhost');
-    const rtmpPort = this.config.get<string>('SRS_RTMP_PORT', '1935');
-    const httpHost = this.config.get<string>('SRS_HTTP_HOST', 'localhost');
-    const httpPort = this.config.get<string>('SRS_HTTP_PORT', '8080');
-    const apiHost = this.config.get<string>('SRS_API_HOST', 'localhost');
-
-    return {
-      rtmpPush: `rtmp://${rtmpHost}:${rtmpPort}/live/${streamKey}`,
-      httpFlv: `http://${httpHost}:${httpPort}/live/${streamKey}.flv`,
-      hls: `http://${httpHost}:${httpPort}/live/${streamKey}.m3u8`,
-      webrtc: `http://${apiHost}:${httpPort}/live/${streamKey}.webrtc`,
-    };
   }
 }
