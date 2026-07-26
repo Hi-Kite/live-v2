@@ -44,12 +44,13 @@ export default defineNuxtConfig({
 
   nitro: {
     devProxy: {
+      // devProxy 会剥掉匹配前缀再转发，target 必须带回对应路径
       '/api': {
-        target: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3001',
+        target: (process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3001') + '/api',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3001',
+        target: (process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:3001') + '/socket.io',
         ws: true,
         changeOrigin: true,
       },

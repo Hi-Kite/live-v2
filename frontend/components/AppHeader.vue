@@ -1,13 +1,13 @@
 <template>
-  <header class="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur-md">
+  <header class="sticky top-0 z-30 border-b border-line/60 bg-surface/70 backdrop-blur-xl">
     <div class="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
       <div class="flex items-center gap-6">
         <AppLogo />
         <nav class="hidden items-center gap-1 sm:flex">
-          <NuxtLink to="/" class="btn-ghost text-sm" active-class="!text-brand-600">直播</NuxtLink>
-          <NuxtLink to="/pvp" class="btn-ghost text-sm" active-class="!text-brand-600">多路</NuxtLink>
-          <NuxtLink to="/subscribe" class="btn-ghost text-sm" active-class="!text-brand-600">订阅</NuxtLink>
-          <NuxtLink v-if="auth.isAdmin" to="/admin" class="btn-ghost text-sm" active-class="!text-brand-600">后台</NuxtLink>
+          <NuxtLink to="/" class="nav-link" active-class="nav-link-active">直播</NuxtLink>
+          <NuxtLink to="/pvp" class="nav-link" active-class="nav-link-active">对战</NuxtLink>
+          <NuxtLink to="/subscribe" class="nav-link" active-class="nav-link-active">订阅</NuxtLink>
+          <NuxtLink v-if="auth.isAdmin" to="/admin" class="nav-link" active-class="nav-link-active">后台</NuxtLink>
         </nav>
       </div>
 
@@ -40,11 +40,11 @@
     </div>
 
     <!-- mobile nav -->
-    <nav class="flex items-center gap-1 border-t border-line px-4 py-2 sm:hidden">
-      <NuxtLink to="/" class="btn-ghost text-sm flex-1 justify-center" active-class="!text-brand-600">直播</NuxtLink>
-      <NuxtLink to="/pvp" class="btn-ghost text-sm flex-1 justify-center" active-class="!text-brand-600">多路</NuxtLink>
-      <NuxtLink to="/subscribe" class="btn-ghost text-sm flex-1 justify-center" active-class="!text-brand-600">订阅</NuxtLink>
-      <NuxtLink v-if="auth.isAdmin" to="/admin" class="btn-ghost text-sm flex-1 justify-center" active-class="!text-brand-600">后台</NuxtLink>
+    <nav class="flex items-center gap-1 border-t border-line/60 px-4 py-2 sm:hidden">
+      <NuxtLink to="/" class="nav-link flex-1 text-center" active-class="nav-link-active">直播</NuxtLink>
+      <NuxtLink to="/pvp" class="nav-link flex-1 text-center" active-class="nav-link-active">对战</NuxtLink>
+      <NuxtLink to="/subscribe" class="nav-link flex-1 text-center" active-class="nav-link-active">订阅</NuxtLink>
+      <NuxtLink v-if="auth.isAdmin" to="/admin" class="nav-link flex-1 text-center" active-class="nav-link-active">后台</NuxtLink>
     </nav>
   </header>
 </template>

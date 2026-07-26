@@ -18,9 +18,9 @@ const props = withDefaults(
 const variantClass = computed(
   () =>
     ({
-      live: 'bg-red-600 text-white',
-      offline: 'bg-slate-500 text-white',
-      neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+      live: 'bg-gradient-to-b from-red-500 to-rose-600 text-white shadow-glow',
+      offline: 'bg-slate-500/15 text-soft',
+      neutral: 'bg-ink/5 text-soft',
       success: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
       danger: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
     })[props.variant],

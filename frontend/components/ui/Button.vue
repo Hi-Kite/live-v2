@@ -45,10 +45,10 @@ const props = withDefaults(
 const variantClass = computed(
   () =>
     ({
-      primary: 'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800',
-      secondary: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700',
-      danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
-      ghost: 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+      primary: 'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-md shadow-brand-600/25 hover:from-brand-600 hover:to-brand-700 hover:shadow-lg hover:shadow-brand-600/30',
+      secondary: 'border border-line bg-surface text-ink shadow-sm hover:border-soft/40 hover:bg-page',
+      danger: 'bg-gradient-to-b from-red-500 to-red-600 text-white shadow-md shadow-red-600/25 hover:from-red-600 hover:to-red-700',
+      ghost: 'text-soft hover:bg-ink/5 hover:text-ink',
     })[props.variant],
 );
 

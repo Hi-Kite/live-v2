@@ -1,6 +1,7 @@
 <template>
   <div class="flex items-end gap-2">
-    <div class="flex-1">
+    <!-- 图片列必须定宽（shrink-0）：flex-1 会被旁边 w-full 的输入框挤成 0 宽 -->
+    <div class="shrink-0">
       <button
         v-if="svg"
         type="button"
@@ -39,6 +40,7 @@
     </div>
     <UiInput
       v-model="code"
+      class="min-w-0 flex-1"
       placeholder="验证码"
       autocomplete="off"
       aria-label="验证码"
@@ -52,6 +54,8 @@ const emit = defineEmits<{
   'update:modelValue': [v: string];
   change: [payload: { id: string; code: string }];
 }>();
+
+const toast = useToast();
 
 const svg = ref<string | null>(null);
 const id = ref('');
@@ -76,7 +80,9 @@ async function refresh() {
     code.value = '';
     emitChange();
   } catch {
+    // 首次加载失败显示重试块；已有验证码时刷新失败不能静默，要给出反馈
     if (!svg.value) loadError.value = true;
+    else toast.error('验证码刷新失败，请重试');
   } finally {
     loading.value = false;
   }
